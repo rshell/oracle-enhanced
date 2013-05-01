@@ -1,6 +1,8 @@
 activerecord-oracle_enhanced-adapter
 ====================================
 
+test
+
 Oracle enhanced adapter for ActiveRecord
 
 DESCRIPTION

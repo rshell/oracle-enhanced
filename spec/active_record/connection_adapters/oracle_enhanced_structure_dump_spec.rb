@@ -6,7 +6,8 @@ describe "OracleEnhancedAdapter structure dump" do
   before(:all) do
     ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
     @conn = ActiveRecord::Base.connection
-    @oracle11g = !! @conn.select_value("SELECT * FROM v$version WHERE banner LIKE 'Oracle%11g%'")
+    @oracle11g_or_higher = !! @conn.select_value(
+      "select * from product_component_version where product like 'Oracle%' and to_number(substr(version,1,2)) >= 11")
   end
   describe "structure dump" do
     before(:each) do
@@ -19,11 +20,7 @@ describe "OracleEnhancedAdapter structure dump" do
       end
       class ::TestPost < ActiveRecord::Base
       end
-      if TestPost.respond_to?(:table_name=)
-        TestPost.table_name = "test_posts"
-      else
-        TestPost.set_table_name "test_posts"
-      end
+      TestPost.table_name = "test_posts"
     end
   
     after(:each) do
@@ -40,6 +37,8 @@ describe "OracleEnhancedAdapter structure dump" do
       @conn.execute "ALTER TABLE foos drop column baz_id" rescue nil
       @conn.execute "ALTER TABLE test_posts drop column fooz_id" rescue nil
       @conn.execute "ALTER TABLE test_posts drop column baz_id" rescue nil
+      @conn.execute "DROP VIEW test_posts_view_z" rescue nil
+      @conn.execute "DROP VIEW test_posts_view_a" rescue nil
     end
   
     it "should dump single primary key" do
@@ -93,6 +92,7 @@ describe "OracleEnhancedAdapter structure dump" do
     end
     
     it "should dump composite foreign keys" do
+      pending "Composite foreign keys are not supported in this version"
       @conn.add_column :foos, :fooz_id, :integer
       @conn.add_column :foos, :baz_id, :integer
       
@@ -141,9 +141,16 @@ describe "OracleEnhancedAdapter structure dump" do
       dump = ActiveRecord::Base.connection.structure_dump_db_stored_code.gsub(/\n|\s+/,' ')
       dump.should =~ /CREATE OR REPLACE TYPE TEST_TYPE/
     end
+
+    it "should dump views" do
+      @conn.execute "create or replace VIEW test_posts_view_z as select * from test_posts"
+      @conn.execute "create or replace VIEW test_posts_view_a as select * from test_posts_view_z"
+      dump = ActiveRecord::Base.connection.structure_dump_db_stored_code.gsub(/\n|\s+/,' ')
+      dump.should =~ /CREATE OR REPLACE FORCE VIEW TEST_POSTS_VIEW_A.*CREATE OR REPLACE FORCE VIEW TEST_POSTS_VIEW_Z/
+    end
   
     it "should dump virtual columns" do
-      pending "Not supported in this database version" unless @oracle11g
+      pending "Not supported in this database version" unless @oracle11g_or_higher
       @conn.execute <<-SQL
         CREATE TABLE bars (
           id          NUMBER(38,0) NOT NULL,
@@ -153,6 +160,18 @@ describe "OracleEnhancedAdapter structure dump" do
       SQL
       dump = ActiveRecord::Base.connection.structure_dump
       dump.should =~ /\"?ID_PLUS\"? NUMBER GENERATED ALWAYS AS \(ID\+2\) VIRTUAL/
+    end
+
+    it "should dump RAW virtual columns" do
+      @conn.execute <<-SQL
+        CREATE TABLE bars (
+          id          NUMBER(38,0) NOT NULL,
+          super       RAW(255) GENERATED ALWAYS AS \( HEXTORAW\(ID\) \) VIRTUAL,
+          PRIMARY KEY (ID)
+        )
+      SQL
+      dump = ActiveRecord::Base.connection.structure_dump
+      dump.should =~ /CREATE TABLE \"BARS\" \(\n\"ID\" NUMBER\(38,0\) NOT NULL,\n \"SUPER\" RAW\(255\) GENERATED ALWAYS AS \(HEXTORAW\(TO_CHAR\(ID\)\)\) VIRTUAL/
     end
 
     it "should dump unique keys" do
@@ -193,6 +212,19 @@ describe "OracleEnhancedAdapter structure dump" do
       dump.should =~ /CREATE  INDEX "?IX_TEST_POSTS_FOO_FOO_ID\"? ON "?TEST_POSTS"? \("?FOO"?, "?FOO_ID"?\)/i
       dump.should =~ /CREATE  INDEX "?IX_TEST_POSTS_FUNCTION\"? ON "?TEST_POSTS"? \(TO_CHAR\(LENGTH\("?FOO"?\)\)\|\|"?FOO"?\)/i
     end
+
+    it "should dump RAW columns" do
+      @conn.execute <<-SQL
+        CREATE TABLE bars (
+          id          NUMBER(38,0) NOT NULL,
+          super       RAW(255),
+          PRIMARY KEY (ID)
+        )
+      SQL
+      dump = ActiveRecord::Base.connection.structure_dump
+      dump.should =~ /CREATE TABLE \"BARS\" \(\n\"ID\" NUMBER\(38,0\) NOT NULL,\n \"SUPER\" RAW\(255\)/
+    end
+
   end
   describe "temporary tables" do
     after(:all) do
@@ -250,7 +282,7 @@ describe "OracleEnhancedAdapter structure dump" do
   describe "full drop" do
     before(:each) do 
       @conn.create_table :full_drop_test do |t|
-        t.integer :id
+        t.string :foo
       end
       @conn.create_table :full_drop_test_temp, :temporary => true do |t|
         t.string :foo

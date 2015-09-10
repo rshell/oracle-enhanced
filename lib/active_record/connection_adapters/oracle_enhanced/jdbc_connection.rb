@@ -2,24 +2,34 @@ begin
   require "java"
   require "jruby"
 
-  # ojdbc6.jar or ojdbc5.jar file should be in JRUBY_HOME/lib or should be in ENV['PATH'] or load path
+  # ojdbc7.jar, ojdbc6.jar or ojdbc5.jar file should be in application ./lib directory or in load path or in ENV['PATH']
 
   java_version = java.lang.System.getProperty("java.version")
-  ojdbc_jar = if java_version =~ /^1.5/
-    "ojdbc5.jar"
-  elsif java_version >= '1.6'
-    "ojdbc6.jar"
+  ojdbc_jars = if java_version =~ /^1.5/
+    %w(ojdbc5.jar)
+  elsif java_version =~ /^1.6/
+    %w(ojdbc6.jar)
+  elsif java_version >= '1.7'
+    # Oracle 11g client ojdbc6.jar is also compatible with Java 1.7
+    # Oracle 12c client provides new ojdbc7.jar
+    %w(ojdbc7.jar ojdbc6.jar)
   else
     nil
   end
 
-  unless ojdbc_jar.nil? || ENV_JAVA['java.class.path'] =~ Regexp.new(ojdbc_jar)
+  if ojdbc_jars && ENV_JAVA['java.class.path'] !~ Regexp.new(ojdbc_jars.join('|'))
     # On Unix environment variable should be PATH, on Windows it is sometimes Path
     env_path = (ENV["PATH"] || ENV["Path"] || '').split(File::PATH_SEPARATOR)
     # Look for JDBC driver at first in lib subdirectory (application specific JDBC file version)
     # then in Ruby load path and finally in environment PATH
-    if ojdbc_jar_path = ['./lib'].concat($LOAD_PATH).concat(env_path).find{|d| File.exists?(File.join(d,ojdbc_jar))}
-      require File.join(ojdbc_jar_path,ojdbc_jar)
+    ['./lib'].concat($LOAD_PATH).concat(env_path).detect do |dir|
+      # check any compatible JDBC driver in the priority order
+      ojdbc_jars.any? do |ojdbc_jar|
+        if File.exists?(file_path = File.join(dir, ojdbc_jar))
+          require file_path
+          true
+        end
+      end
     end
   end
 
@@ -33,7 +43,7 @@ begin
 
 rescue LoadError, NameError
   # JDBC driver is unavailable.
-  raise LoadError, "ERROR: ActiveRecord oracle_enhanced adapter could not load Oracle JDBC driver. Please install #{ojdbc_jar || "Oracle JDBC"} library."
+  raise LoadError, "ERROR: ActiveRecord oracle_enhanced adapter could not load Oracle JDBC driver. Please install #{ojdbc_jars ? ojdbc_jars.join(' or ') : "Oracle JDBC"} library."
 end
 
 
@@ -86,7 +96,7 @@ module ActiveRecord
             @raw_connection = @raw_connection.innermost_delegate
           elsif @raw_connection.respond_to?(:getUnderlyingConnection)
             @pooled_connection = @raw_connection
-            @raw_connection = @raw_connection.underlying_connection            
+            @raw_connection = @raw_connection.underlying_connection
           end
 
           config[:driver] ||= @raw_connection.meta_data.connection.java_class.name
@@ -285,7 +295,7 @@ module ActiveRecord
             # else
             #   nil
             # end
-            
+
             # Workaround with CallableStatement
             s = @raw_connection.prepareCall("BEGIN #{sql}; END;")
             s.registerOutParameter(1, java.sql.Types::BIGINT)
@@ -309,7 +319,8 @@ module ActiveRecord
           @raw_statement = raw_statement
         end
 
-        def bind_param(position, value, col_type = nil)
+        def bind_param(position, value, column = nil)
+          col_type = column && column.type
           java_value = ruby_to_java_value(value, col_type)
           case value
           when Integer
@@ -336,10 +347,14 @@ module ActiveRecord
           when Time
             @raw_statement.setTimestamp(position, java_value)
           when NilClass
-            # TODO: currently nil is always bound as NULL with VARCHAR type.
-            # When nils will actually be used by ActiveRecord as bound parameters
-            # then need to pass actual column type.
-            @raw_statement.setNull(position, java.sql.Types::VARCHAR)
+            if column && column.object_type?
+              @raw_statement.setNull(position, java.sql.Types::STRUCT, column.sql_type)
+            else
+              # TODO: currently nil is always bound as NULL with VARCHAR type.
+              # When nils will actually be used by ActiveRecord as bound parameters
+              # then need to pass actual column type.
+              @raw_statement.setNull(position, java.sql.Types::VARCHAR)
+            end
           else
             raise ArgumentError, "Don't know how to bind variable with type #{value.class}"
           end

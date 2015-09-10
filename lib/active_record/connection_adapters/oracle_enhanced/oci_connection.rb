@@ -2,9 +2,11 @@ require 'delegate'
 
 begin
   require "oci8"
-rescue LoadError
-  # OCI8 driver is unavailable.
-  raise LoadError, "ERROR: ActiveRecord oracle_enhanced adapter could not load ruby-oci8 library. Please install ruby-oci8 gem."
+rescue LoadError => e
+  # OCI8 driver is unavailable or failed to load a required library.
+  raise LoadError, "ERROR: '#{e.message}'. "\
+    "ActiveRecord oracle_enhanced adapter could not load ruby-oci8 library. "\
+    "You may need install ruby-oci8 gem."
 end
 
 # check ruby-oci8 version
@@ -113,11 +115,17 @@ module ActiveRecord
           @raw_cursor = raw_cursor
         end
 
-        def bind_param(position, value, col_type = nil)
-          if value.nil?
+        def bind_param(position, value, column = nil)
+          if column && column.object_type?
+            if @connection.raw_connection.respond_to? :get_tdo_by_typename
+              @raw_cursor.bind_param(position, value, :named_type, column.sql_type)
+            else
+              raise "Use ruby-oci8 2.1.6 or later to bind Oracle objects."
+            end
+          elsif value.nil?
             @raw_cursor.bind_param(position, nil, String)
           else
-            case col_type
+            case col_type = column && column.type
             when :text, :binary
               # ruby-oci8 cannot create CLOB/BLOB from ''
               lob_value = value == '' ? ' ' : value
@@ -218,15 +226,19 @@ module ActiveRecord
       def write_lob(lob, value, is_binary = false)
         lob.write value
       end
-      
+
       def describe(name)
         # fall back to SELECT based describe if using database link
         return super if name.to_s.include?('@')
         quoted_name = OracleEnhancedAdapter.valid_table_name?(name) ? name : "\"#{name}\""
         @raw_connection.describe(quoted_name)
       rescue OCIException => e
-        # fall back to SELECT which can handle synonyms to database links
-        super
+        if e.code == 4043
+          raise OracleEnhancedConnectionException, %Q{"DESC #{name}" failed; does it exist?}
+        else
+          # fall back to SELECT which can handle synonyms to database links
+          super
+        end
       end
 
       # Return OCIError error code
@@ -260,9 +272,7 @@ module ActiveRecord
           else
             value
           end
-        # ruby-oci8 1.0 returns OraDate
-        # ruby-oci8 2.0 returns Time or DateTime
-        when OraDate, Time, DateTime
+        when Time, DateTime
           if OracleEnhancedAdapter.emulate_dates && date_without_time?(value)
             value.to_date
           else
@@ -283,7 +293,7 @@ module ActiveRecord
           value.hour == 0 && value.min == 0 && value.sec == 0
         end
       end
-      
+
       def create_time_with_default_timezone(value)
         year, month, day, hour, min, sec, usec = case value
         when Time
@@ -303,7 +313,7 @@ module ActiveRecord
       end
 
     end
-    
+
     # The OracleEnhancedOCIFactory factors out the code necessary to connect and
     # configure an Oracle/OCI connection.
     class OracleEnhancedOCIFactory #:nodoc:
@@ -351,8 +361,8 @@ module ActiveRecord
         conn
       end
     end
-    
-    
+
+
   end
 end
 
@@ -360,66 +370,15 @@ end
 
 class OCI8 #:nodoc:
 
-  class Cursor #:nodoc:
-    if method_defined? :define_a_column
-      # This OCI8 patch is required with the ruby-oci8 1.0.x or lower.
-      # Set OCI8::BindType::Mapping[] to change the column type
-      # when using ruby-oci8 2.0.
-
-      alias :enhanced_define_a_column_pre_ar :define_a_column
-      def define_a_column(i)
-        case do_ocicall(@ctx) { @parms[i - 1].attrGet(OCI_ATTR_DATA_TYPE) }
-        when 8;   @stmt.defineByPos(i, String, 65535) # Read LONG values
-        when 187; @stmt.defineByPos(i, OraDate) # Read TIMESTAMP values
-        when 108
-          if @parms[i - 1].attrGet(OCI_ATTR_TYPE_NAME) == 'XMLTYPE'
-            @stmt.defineByPos(i, String, 65535)
-          else
-            raise 'unsupported datatype'
-          end
-        else enhanced_define_a_column_pre_ar i
-        end
-      end
-    end
-  end
-
-  if OCI8.public_method_defined?(:describe_table)
-    # ruby-oci8 2.0 or upper
-
-    def describe(name)
-      info = describe_table(name.to_s)
-      raise %Q{"DESC #{name}" failed} if info.nil?
+  def describe(name)
+    info = describe_table(name.to_s)
+    raise %Q{"DESC #{name}" failed} if info.nil?
+    if info.respond_to? :obj_link and info.obj_link
+      [info.obj_schema, info.obj_name, '@' + info.obj_link]
+    else
       [info.obj_schema, info.obj_name]
     end
-  else
-    # ruby-oci8 1.0.x or lower
-
-    # missing constant from oci8 < 0.1.14
-    OCI_PTYPE_UNK = 0 unless defined?(OCI_PTYPE_UNK)
-
-    # Uses the describeAny OCI call to find the target owner and table_name
-    # indicated by +name+, parsing through synonynms as necessary. Returns
-    # an array of [owner, table_name].
-    def describe(name)
-      @desc ||= @@env.alloc(OCIDescribe)
-      @desc.attrSet(OCI_ATTR_DESC_PUBLIC, -1) if VERSION >= '0.1.14'
-      do_ocicall(@ctx) { @desc.describeAny(@svc, name.to_s, OCI_PTYPE_UNK) } rescue raise %Q{"DESC #{name}" failed; does it exist?}
-      info = @desc.attrGet(OCI_ATTR_PARAM)
-
-      case info.attrGet(OCI_ATTR_PTYPE)
-      when OCI_PTYPE_TABLE, OCI_PTYPE_VIEW
-        owner      = info.attrGet(OCI_ATTR_OBJ_SCHEMA)
-        table_name = info.attrGet(OCI_ATTR_OBJ_NAME)
-        [owner, table_name]
-      when OCI_PTYPE_SYN
-        schema = info.attrGet(OCI_ATTR_SCHEMA_NAME)
-        name   = info.attrGet(OCI_ATTR_NAME)
-        describe(schema + '.' + name)
-      else raise %Q{"DESC #{name}" failed; not a table or view.}
-      end
-    end
   end
-
 end
 
 # The OCI8AutoRecover class enhances the OCI8 driver with auto-recover and
@@ -494,13 +453,6 @@ class OCI8EnhancedAutoRecover < DelegateClass(OCI8) #:nodoc:
       should_retry = false
       reset! rescue nil
       retry
-    end
-  end
-
-  # otherwise not working in Ruby 1.9.1
-  if RUBY_VERSION =~ /^1\.9/
-    def describe(name) #:nodoc:
-      @connection.describe(name)
     end
   end
 

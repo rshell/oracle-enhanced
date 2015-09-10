@@ -1,3 +1,316 @@
+## 1.6.3 / 2015-08-14
+
+* Changes and bug fixes since 1.6.2
+ * Set sequence name automatically when new table name is longer than 26 bytes[#676]
+ * Add minimal specs for ActiveRecord::Base.limit() and .order()[#679]
+ * Use type_casted_binds [#681]
+ * Use type_cast_for_database to serialize correctly [#688]
+ * Suppress deprecated message for serialized_attributes [#688, #548, #687]
+
+## 1.6.2 / 2015-07-20
+
+* Changes and bug fixes since 1.6.1
+
+ * Oracle enhanced adapter v1.6 requires ActiveRecord 4.2.1 or higher,
+   ActiveRecord 4.2.0 is not supported.[#672]
+ * Unique constraints not created when function unique index created [#662, #663]
+ * create_table should use default tablespace values for lobs [#668]
+
+## 1.6.1 / 2015-07-01
+
+* Changes and bug fixes since 1.6.0
+
+ * Oracle enhanced adapter v1.6 requires ActiveRecord 4.2.1 or higher, 
+   ActiveRecord 4.2.0 is not supported.[#651, #652]
+ * Fix serialized value becomes from yaml to string once saved [#655, #657]
+ * Update Ruby version in readme [#654]
+ * Update unit test matcher to skip sql statements to get `table` metadata [#653] 
+
+## 1.6.0 / 2015-06-25
+
+* Changes and bug fixes since 1.6.0.beta1
+
+ * Add deprecation warnings for Oracle enhanced specific foreign key methods [#631]
+ * Skip composite foreign key tests not supported in this version [#632]
+ * Do not dump default foreign key name [#633]
+ * Schema dump uses `:on_delete` option instead of `:dependent` [#634]
+ * Use Rails foreign key name in rspec unit tests [#635]
+ * Add deprecate warning if foreign key name length is longer than 30 byte [#636]
+ * Foreign key name longer than 30 byte will be shortened using Digest::SHA1.hexdigest [#637]
+ * Schema dumper for :integer will not dump :precision 0 [#638]
+ * Update foreign key names for add_foreign_key with table_name_prefix [#643]
+
+* Known Issues since 1.6.0.beta1
+ * table_name_prefix and table_name_suffix changes column names which cause ORA-00904 [#639]
+ * custom methods should rollback record when exception is raised in after_create callback fails [#640]
+ * custom methods for create, update and destroy should log create record fails [#641]
+
+## 1.6.0.beta 1 / 2015-06-19
+
+* Enhancements
+ * Support Rails 4.2
+ * Support Rails native foreign key syntax [#488, #618]
+
+* Other changes and bug fixes
+ * Column#primary method removed from Rails [#483]
+ * ActiveRecord::Migrator.proper_table_name has been removed from Rails [#481]
+ * New db/schema.rb files will be created with force: :cascade [#593]
+ * Rails42 add unique index creates unique constraint [#617]
+ * Modify remove_column to add cascade constraint to avoid ORA-12991 [#617]
+ * Add `null: true` to avoid DEPRECATION WARNING [#489, #499]
+ * Rails 4.2 Add `connection.supports_views?` [#496]
+ * text? has been removed from Column class [#487]
+ * Remove call to deprecated `serialized_attributes` [#550, #552]
+ * Support :cascade option for drop_table [#579]
+ * Raise a better exception for renaming long indexes [#577]
+ * Override aliased_types [#575]
+ * Revert "Add options_include_default!" [#586]
+ * Remove substitute_at method from Oracle enhanced adapter [#520]
+ * Require 'active_record/base' in rake task #526
+ * Make it easier to spot which version of active record is actually used [#550]
+ * Rails4.2 Add Type::Raw type [#503]
+ * Support :bigint datatype [#580]
+ * Map :bigint as NUMBER(19) sql_type not NUMBER(8) [#608]
+ * Use Oracle BINARY_FLOAT datatype for Rails :float type [#610]
+ * Revert "Implement possibility of handling of NUMBER columns as :float" [#576]
+ * Rails 4.2 Support NCHAR correctly [#490]
+ * Support :timestamp datatype in Rails 4.2 [#575]
+ * Rails 4.2 Handle NUMBER sql_type as `Type::Integer` cast type [#509]
+ * ActiveRecord::OracleEnhanced::Type::Integer for max_value to take 38 digits [#605]
+ * Rails 4.2 add `module OracleEnhanced` and migrate classes/modules under this [#584]
+ * Migrate to ActiveRecord::ConnectionAdapters::OracleEnhanced::ColumnDumper [#597]
+ * Migrated from OracleEnhancedContextIndex to OracleEnhanced::ContextIndex [#599]
+ * Make OracleEnhancedIndexDefinition as subclass of IndexDefinition [#600]
+ * Refactor add_index and add_index_options [#601]
+ * Types namespace moved to `ActiveRecord::Type::Value` [#484]
+ * Add new_column method [#482]
+ * Rename type_cast to type_cast_from_database [#485]
+ * Removed `forced_column_type` by using `cast_type` [#595]
+ * Move dump_schema_information to SchemaStatements [#611]
+ * Move OracleEnhancedIndexDefinition to OracleEnhanced::IndexDefinition [#614]
+ * Move OracleEnhancedSynonymDefinition to OracleEnhanced::SynonymDefinition [#615]
+ * Move types under OracleEnhanced module [#603]
+ * Make OracleEnhancedForeignKeyDefinition as subclass of ForeignKeyDefinition [#581]
+ * Support _field_changed argument changes [#479]
+ * Rails 4.2 Don't type cast the default on the column [#504]
+ * Rename variable names in create_table to follow Rails implementation [#616]
+ * Rails 4.2: Fix create_savepoint and rollback_to_savepoint name [#497]
+ * Shorten foreign key name if it is longer than 30 byte [#621]
+ * Restore foreign_key_definition [#624]
+ * Rails 4.2 Support OracleEnhancedAdapter.emulate_integers_by_column_name [#491]
+ * Rails 4.2 Support OracleEnhancedAdapter.emulate_dates_by_column_name [#492]
+ * Rails 4.2 Support emulate_booleans_from_strings and is_boolean_column? [#506]
+ * Rails 4.2 Support OracleEnhancedAdapter.number_datatype_coercion [#512]
+ * Rails 4.2 Use register_class_with_limit [#502]
+ * Rails 4.2 Remove redundant substitute index when constructing bind values [#517]
+ * Rails 4.2 Unit test updated to support `substitute_at` in Arel [#522]
+ * Change log method signiture to support Rails 4.2 [#539]
+ * Enable loading spec configuration from config file instead of env [#550]
+ * Rails42: Issue with non-existent columns [#545, #551]
+ * Squelch warning "#column_for_attribute` will return a null object 
+   for non-existent columns in Rails 5. Use `#has_attribute?`" [#551]
+ * Use arel 6-0-stable [#565]
+ * Support 'Y' as true and 'N' as false in Rails 4.2 [#574, #573]
+ * Remove alias_method_chain :references, :foreign_keys [#582]
+ * Use quote_value method to avoid undefined method `type_cast_for_database' for nil:NilClass [#486]
+ * Rails 4.2: Set @nchar and @object_type only when sql_type is true [#493]
+ * Rails 4.2: Handle forced_column_type temporary [#498]
+ * Rails 4.2 Address ArgumentError: wrong number of arguments (1 for 2) at `quote_value` [#511]
+ * Address ORA-00932: inconsistent datatypes: expected NUMBER got DATE [#538]
+ * Remove duplicate alias_method_chain for indexes [#560]
+ * Address RangeError: 6000000000 is out of range for ActiveRecord::Type::Integer 
+   with limit 4 [#578]
+ * Return foreign_keys_without_oracle_enhanced when non Oracle database used [#583]
+ * Add missing database_tasks.rb to gemspec [#585]
+ * Fixed typo in the rake tasks load statement [#587]
+ * Call super when column typs is serialized [#563, #591]
+ * Clear query cache on rollback [#592]
+ * Modify default to `false` if database default value is "N" [#596]
+ * refer correct location if filess in gemspec [#606]
+ * Add integer.rb to gemspec [#607]
+
+* Known Issues
+ * Override aliased_types [#575]
+ * Multi column foreign key is not supported
+
+## 1.5.6 / 2015-03-30
+
+* Enhancements
+ * Support Rails 4.1.10 [#530]
+ * Remove warning message when JDK 8 is used [#525]
+ * Support RAW column types [#471]
+ * Properly quote database links [#556]
+ * Grant create view privilege to db user [#528]
+ * Read SYSTEM password from ENV ORACLE_SYSTEM_PASSWORD optionally [#529]
+ * Show original error message when loading ruby-oci8 library fails [#532]
+ * Update README that `OracleEnhancedProcedures` is not auto loaded [#474]
+ * Fix legacy schema support syntax [#507]
+ * Peform all unit test when tested with Oracle 12c [#465]
+ * Add `:if_exists` option to `drop_table` [#541]
+ * Extract OracleEnhancedDatabaseStatements [#449]
+ * Removed self.visitor_for(pool) method [#501]
+
+* Bug Fix
+ * Fix serialized readonly lobs [#515]
+ * Do not dump schema information during structure dump [#558]
+ * Structure dump generates correct create or replace synonym [#453]
+ * Procedures and functions are created correctly by removing semi-colon [#456]
+ * Show support matrix of Java and JDBC Driver only when java_version >= '1.8' [#455]
+ * Update Gemfile dependencies so specs can run [#472]
+
+## 1.5.5 / 2014-05-23
+
+* Enhancements
+ * Oracle NUMBER datatype can be handled as Rails :float datatype [#418]
+   - Default NUMBER datatype handled as :decimal to keep compatibility
+   - Configured by setting `self.number_datatype_coercion = :float` 
+ * Add link to supported Oracle database version, JDK and Oracle JDBC Driver version [#438]
+ * Support `without_prepared_statements?` to handle `unprepared_statement` [#447]
+
+* Bug Fix
+  * Associations with name `record` do not work correctly since Rails 4 [#435]
+  * Skip another Oracle Text test when Oracle 12c used [#437]
+  * Tag bind params with a bind param object [#444]
+
+## 1.5.4 / 2014-03-25
+
+* Enhancements
+ * Support Rails 4.1.0.rc2
+ * Allow Java 8 to run with jruby [#383]
+
+* Bug Fix
+  * Fix db:schema:dump when foreign key column name is not 'id' [#409]
+  * Fix schema dump works when non Oracle adapter used [#428]
+
+## 1.5.3 / 2014-03-04
+
+* Enhancements
+ * Supports Rails 4.1.0.rc1
+ * Support rails/rails#13886 by chainging select_rows arguments [#415]
+
+* Bug Fix
+  * Fix ORA-01008: not all variables bound [#422]
+
+## 1.5.2 / 2014-01-24
+
+* Enhancements
+ * Supports Rails 4.1.0.beta1
+ * Support Rails 4 Database Tasks [#404]
+ * Create sequence when add primary_key column [#406]
+ * Move `SchemaCreation` to its own file [#381]
+ * Remove unused OracleEnhancedColumnDefinition [#382]
+ * Log bind variables after they were type casted [#385]
+ * Remove add_order_by_for_association_limiting! [#388]
+ * Support named savepoints [#389]
+ * Support self.extract_value_from_default [#395]
+ * Remove oracle_enhanced_core_ext.rb [#397]
+ * Remove unused to_sql_with_foreign_keys and lob_columns [#398]
+ * Remove ruby-oci8 v1 code [#405]
+
+* Bug Fix
+  * Move add_column_options! into SchemaCreation class [#384]
+  * Add options_include_default! [#384]
+  * Use OCI8::Metadata::Base#obj_link [#399]
+
+## 1.5.1 / 2013-11-30
+
+* Enhancements
+ * Removed set_table_name set_primary_key set_sequence_name from unit tests [#364]
+ * Update README to support assignment methods [#365]
+ * Remove add_limit_offset! method [#369]
+ * Update Gemfile to use `bundle config --local` [#370]
+ * `describe` does not try super when no datbase link and ORA-4043 returned [#375]
+ * Support `remove_columns` [#377]
+ * Dump views in alphabetical order and add `FORCE` option [#378]
+
+* Bug Fix
+ * Fixed reverting add_column fails with v1.5.0 [#373]
+
+## 1.5.0 / 2013-11-01
+
+* Enhancements
+ * Add license in gemspec and Rakefile [#361]
+
+## 1.5.0.rc1 / 2013-10-31
+
+* Update README and HISTORY
+* No other changes since 1.5.0.beta1
+
+## 1.5.0.beta1 / 2013-10-28
+
+* Enhancements and major changes
+ * Support Rails 4.0
+ * Desupport Rails 3.2 and lower version. To support Rails 3.2, use Version 1.4.3
+ * Drop session store support [#219]
+ * Create indexes automatically for references and belongs_to [#183]
+ * Use the index name explicitly provided in a migration when reverting [#296]
+ * Rename indexes when a table or column is renamed [#286]
+ * Support refactored remove_column [#172] 
+ * Support allowed_index_name_length method [#285]
+ * Remove schema prefix from sequence name if present before truncating [#155]
+ * Bumped jeweler, ruby-plsql and ruby-oci8 version [#176]
+ * Support also ojdbc6.jar for Java 1.7 [#350]
+ * Support "activerecord-deprecated_finders" [#210]
+ * Prepared statements can be disabled [#295]
+ * Ensure disconnecting or reconnecting resets the transaction state [#220]
+ * Support for specifying transaction isolation level [#226]
+ * Rename the partial_updates config to partial_writes [#234]
+ * Deprecate passing a string as third argument of add_index [#242]
+ * Rename update method to update_record, create method to create_record [#273]
+ * Deprecate #connection in favour of accessing it via the class [#297]
+ * Support SchemaCreation [#298]
+ * Add support for foreign key creation in create_table [#317]
+ * Add virtual columns support for rail4 branch [#329]
+ * Support columns_for_distinct method [#340]
+ * Clear index cache when any table dropped [#200]
+ * Clear index cache when remove_column executed [#269]
+ * Dump schema uses ruby 1.9 style hash [#229]
+ * Support _field_changed? and drop field_changed? [#182 #254]
+ * Use arel nodes instead of raw sql [#198]
+ * Raise an ArgumentError when passing an invalid option to add_index [#242]
+ * Split OracleEnhancedColumnDumper from OracleEnhancedSchemaDumper [#292]
+ * Unit test sets default_timezone = :local [#184]
+ * Support reset_pk_sequence! [#287]
+ * Remove unnecessary pendings in unit tests [#358]
+
+* Bug Fix
+ * Address ArgumentError: wrong number of arguments (5 for 3) [#166]
+ * Address NoMethodError: undefined method `column_types' [#173]
+ * Schema dumper removes table_name_prefix and table_name_suffix [#191]
+ * Add clear_logger to address ArgumentError: wrong number of arguments (1 for 2) [#193]
+ * Use Relation#to_a as Relation#all is deprecated in Rails [#203]
+ * Address Address test_integer_zero_to_integer_zero_not_marked_as_changed failure [#207]
+ * Address NoMethodError undefined method `default_string' [#221]
+ * Address you can't redefine the primary key column 'id'. To define a custom primary key, pass { id: false } to create_table [#238]
+ * Remove unnecessary DEPRECATION WARNING [#255]
+ * Assigning "0.0" to a nullable numeric column does not make it dirty [#293]
+ * Address `rake spec` abort [#353]
+ * Correct activerecord-deprecated_finders not loaded if ENV['RAILS_GEM_VERSION'] set [#353]
+
+* Known Issues
+ * Oracle Text features are not fully supported with Oracle 12c [#331]
+
+### 1.4.3 / 2013-10-24
+
+* No changes since 1.4.3.rc2
+
+### 1.4.3.rc2 / 2013-10-23
+
+* Change build procedures
+* No other changes since 1.4.3.rc1
+
+### 1.4.3.rc1 / 2013-10-19
+
+* Enhancements:
+  * Allow inserting NULL to Oracle Spatial Data Types such as MDSYS.SDO_GEOMETRY [#311]
+  * Support ojdbc7.jar JDBC Driver [#335]
+
+* Bug fixes:
+  * Fixed Gemfile to bundle update work [#294]
+  * Fixed broken links in README.md and RUNNING_TESTS.md [#303 #306]
+  * Address rename_table works if the source table created with :id => false [#336]
+  * Use expand_path to show VERSION with Windows XP
+
 ### 1.4.2 / 2013-03-18
 
 * No changes since 1.4.2.rc2

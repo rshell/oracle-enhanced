@@ -92,7 +92,8 @@ describe "OracleEnhancedConnection" do
 
       it "should create new connection using :url" do
         params = CONNECTION_PARAMS.dup
-        params[:url] = "jdbc:oracle:thin:@#{DATABASE_HOST && "#{DATABASE_HOST}:"}#{DATABASE_PORT && "#{DATABASE_PORT}:"}#{DATABASE_NAME}"
+        params[:url] = "jdbc:oracle:thin:@#{DATABASE_HOST && "//#{DATABASE_HOST}#{DATABASE_PORT && ":#{DATABASE_PORT}"}/"}#{DATABASE_NAME}"
+
         params[:host] = nil
         params[:database] = nil
         @conn = ActiveRecord::ConnectionAdapters::OracleEnhancedConnection.create(params)
@@ -157,7 +158,7 @@ describe "OracleEnhancedConnection" do
 
     it "should fall back to directly instantiating OracleDriver" do
       params = CONNECTION_PARAMS.dup
-      params[:url] = "jdbc:oracle:thin:@#{DATABASE_HOST && "#{DATABASE_HOST}:"}#{DATABASE_PORT && "#{DATABASE_PORT}:"}#{DATABASE_NAME}"
+      params[:url] = "jdbc:oracle:thin:@#{DATABASE_HOST && "//#{DATABASE_HOST}#{DATABASE_PORT && ":#{DATABASE_PORT}"}/"}#{DATABASE_NAME}"
       params[:host] = nil
       params[:database] = nil
       java.sql.DriverManager.stub!(:getConnection).and_raise('no suitable driver found')
@@ -226,7 +227,9 @@ describe "OracleEnhancedConnection" do
 
     it "should execute prepared statement with decimal bind parameter " do
       cursor = @conn.prepare("INSERT INTO test_employees VALUES(:1)")
-      cursor.bind_param(1, "1.5", :decimal)
+      column = ActiveRecord::ConnectionAdapters::OracleEnhancedColumn.new('age', nil, ActiveRecord::Type::Decimal.new, 'NUMBER(10,2)')
+      column.type.should == :decimal
+      cursor.bind_param(1, "1.5", column)
       cursor.exec
       cursor.close
       cursor = @conn.prepare("SELECT age FROM test_employees")
@@ -325,6 +328,17 @@ describe "OracleEnhancedConnection" do
 
     it "should describe existing public synonym" do
       @conn.describe("all_tables").should == ["SYS", "ALL_TABLES"]
+    end
+
+    if defined?(OCI8)
+      context "OCI8 adapter" do
+
+        it "should not fallback to SELECT-based logic when querying non-existant table information" do
+          @conn.should_not_receive(:select_one)
+          @conn.describe("non_existant") rescue ActiveRecord::ConnectionAdapters::OracleEnhancedConnectionException
+        end
+
+      end
     end
 
   end

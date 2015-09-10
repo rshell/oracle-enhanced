@@ -45,7 +45,7 @@ module ActiveRecord #:nodoc:
           col << "(#{column['data_precision'].to_i}"
           col << ",#{column['data_scale'].to_i}" if !column['data_scale'].nil?
           col << ')'
-        elsif column['data_type'].include?('CHAR')
+        elsif column['data_type'].include?('CHAR') || column['data_type'] == 'RAW'
           length = column['char_used'] == 'C' ? column['char_length'].to_i : column['data_length'].to_i
           col <<  "(#{length})"
         end
@@ -61,7 +61,7 @@ module ActiveRecord #:nodoc:
           col << "(#{column['data_precision'].to_i}"
           col << ",#{column['data_scale'].to_i}" if !column['data_scale'].nil?
           col << ')'
-        elsif column['data_type'].include?('CHAR')
+        elsif column['data_type'].include?('CHAR') || column['data_type'] == 'RAW'
           length = column['char_used'] == 'C' ? column['char_length'].to_i : column['data_length'].to_i
           col <<  "(#{length})"
         end
@@ -134,11 +134,33 @@ module ActiveRecord #:nodoc:
         join_with_statement_token(fks)
       end
 
-      def dump_schema_information #:nodoc:
-        sm_table = ActiveRecord::Migrator.schema_migrations_table_name
-        migrated = select_values("SELECT version FROM #{sm_table} ORDER BY version")
-        join_with_statement_token(migrated.map{|v| "INSERT INTO #{sm_table} (version) VALUES ('#{v}')" })
+      def foreign_key_definition(to_table, options = {}) #:nodoc:
+        columns = Array(options[:column] || options[:columns])
+
+        if columns.size > 1
+          # composite foreign key
+          columns_sql = columns.map {|c| quote_column_name(c)}.join(',')
+          references = options[:references] || columns
+          references_sql = references.map {|c| quote_column_name(c)}.join(',')
+        else
+          columns_sql = quote_column_name(columns.first || "#{to_table.to_s.singularize}_id")
+          references = options[:references] ? options[:references].first : nil
+          references_sql = quote_column_name(options[:primary_key] || references || "id")
+        end
+
+        table_name = to_table
+
+        sql = "FOREIGN KEY (#{columns_sql}) REFERENCES #{quote_table_name(table_name)}(#{references_sql})"
+
+        case options[:dependent]
+        when :nullify
+          sql << " ON DELETE SET NULL"
+        when :delete
+          sql << " ON DELETE CASCADE"
+        end
+        sql
       end
+
 
       # Extract all stored procedures, packages, synonyms and views.
       def structure_dump_db_stored_code #:nodoc:
@@ -149,31 +171,31 @@ module ActiveRecord #:nodoc:
                       AND name NOT LIKE 'BIN$%'
                       AND owner = SYS_CONTEXT('userenv', 'session_user') ORDER BY type").each do |source|
           ddl = "CREATE OR REPLACE   \n"
-          lines = select_all(%Q{
+          select_all(%Q{
                   SELECT text
                     FROM all_source
                    WHERE name = '#{source['name']}'
                      AND type = '#{source['type']}'
                      AND owner = SYS_CONTEXT('userenv', 'session_user')
                    ORDER BY line
-                }).map do |row|
+                }).each do |row|
             ddl << row['text']
           end
-          ddl << ";" unless ddl.strip[-1,1] == ";"
+          ddl << ";" unless ddl.strip[-1,1] == ';'
           structure << ddl
         end
 
         # export views 
-        select_all("SELECT view_name, text FROM user_views").each do |view|
-          structure << "CREATE OR REPLACE VIEW #{view['view_name']} AS\n #{view['text']}"
+        select_all("SELECT view_name, text FROM user_views ORDER BY view_name ASC").each do |view|
+          structure << "CREATE OR REPLACE FORCE VIEW #{view['view_name']} AS\n #{view['text']}"
         end
 
         # export synonyms
         select_all("SELECT owner, synonym_name, table_name, table_owner
                       FROM all_synonyms
                      WHERE owner = SYS_CONTEXT('userenv', 'session_user') ").each do |synonym|
-          structure << "CREATE OR REPLACE #{synonym['owner'] == 'PUBLIC' ? 'PUBLIC' : '' } SYNONYM #{synonym['synonym_name']}"
-          structure << " FOR #{synonym['table_owner']}.#{synonym['table_name']}"
+          structure << "CREATE OR REPLACE #{synonym['owner'] == 'PUBLIC' ? 'PUBLIC' : '' } SYNONYM #{synonym['synonym_name']}
+			FOR #{synonym['table_owner']}.#{synonym['table_name']}"
         end
 
         join_with_statement_token(structure)
@@ -240,7 +262,6 @@ module ActiveRecord #:nodoc:
 
       def execute_structure_dump(string)
         string.split(STATEMENT_TOKEN).each do |ddl|
-          ddl.chop! if ddl.last == ";"
           execute(ddl) unless ddl.blank?
         end
       end
@@ -259,7 +280,7 @@ module ActiveRecord #:nodoc:
                AND table_name = '#{table.upcase}'
           SQL
         # feature not supported previous to 11g
-        rescue ActiveRecord::StatementInvalid => e
+        rescue ActiveRecord::StatementInvalid => _e
           []
         end
       end

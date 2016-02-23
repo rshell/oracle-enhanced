@@ -3,6 +3,29 @@ activerecord-oracle_enhanced-adapter
 
 Oracle enhanced adapter for ActiveRecord
 
+This version is modified to allow sql bulk operations and show explains plans.
+
+   explain(sql, name = nil)
+
+Running a prepared statement  need linked acts_as_bulk_many plugin to do active record side then on oracle needed :-
+
+1) Prepare statement for use
+
+    prepare(sql, name = nil)
+
+2) correctly typed arrays to statement
+
+      bind_param_array(position, values,type = nil, max_item_length = nil)
+
+3) Set array size
+
+      max_array_size=(n)
+
+4) Run statement
+
+      exec_array()
+
+
 DESCRIPTION
 -----------
 

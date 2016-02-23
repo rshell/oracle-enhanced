@@ -153,6 +153,22 @@ module ActiveRecord
           @raw_cursor.exec
         end
 
+#------------------------------------------------------------------------
+# Extra Patch to support bulk insert/update
+#
+        def bind_param_array(position, values,type = nil, max_item_length = nil)
+          @raw_cursor.bind_param_array(position, values,type, max_item_length)
+        end
+
+        def max_array_size=(n)
+          @raw_cursor.max_array_size=n
+        end
+
+        def exec_array
+          @raw_cursor.exec_array
+        end
+#------------------------------------------------------------------------
+
         def get_col_names
           @raw_cursor.get_col_names
         end
@@ -333,6 +349,7 @@ module ActiveRecord
         conn.prefetch_rows = prefetch_rows
         conn.exec "alter session set cursor_sharing = #{cursor_sharing}" rescue nil
         conn.exec "alter session set time_zone = '#{time_zone}'" unless time_zone.blank?
+        conn.exec "alter session set recyclebin = OFF"
 
         # Initialize NLS parameters
         OracleEnhancedAdapter::DEFAULT_NLS_PARAMETERS.each do |key, default_value|

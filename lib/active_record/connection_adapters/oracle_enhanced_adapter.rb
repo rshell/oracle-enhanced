@@ -201,20 +201,21 @@ module ActiveRecord
       #
       #   ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.emulate_booleans_from_strings = true
       cattr_accessor :emulate_booleans_from_strings
-      self.emulate_booleans_from_strings = false
+      self.emulate_booleans_from_strings = true
 
       # Check column name to identify if it is boolean (and not String) column.
       # Is used if +emulate_booleans_from_strings+ option is set to +true+.
       # Override this method definition in initializer file if different boolean column recognition is needed.
       def self.is_boolean_column?(name, field_type, table_name = nil)
         return true if ["CHAR(1)","VARCHAR2(1)"].include?(field_type)
+        return true if "NUMBER(1)"==field_type
         field_type =~ /^VARCHAR2/ && (name =~ /_flag$/i || name =~ /_yn$/i)
       end
 
       # How boolean value should be quoted to String.
       # Used if +emulate_booleans_from_strings+ option is set to +true+.
       def self.boolean_to_string(bool)
-        bool ? "Y" : "N"
+        bool ? "1" : "0"
       end
 
       ##
@@ -297,6 +298,7 @@ module ActiveRecord
       #:stopdoc:
       DEFAULT_NLS_PARAMETERS = {
         :nls_calendar            => nil,
+        :nls_characterset        => nil,
         :nls_comp                => nil,
         :nls_currency            => nil,
         :nls_date_format         => 'YYYY-MM-DD HH24:MI:SS',
@@ -305,6 +307,7 @@ module ActiveRecord
         :nls_iso_currency        => nil,
         :nls_language            => nil,
         :nls_length_semantics    => 'CHAR',
+        :nls_nchar_characterset  => nil,
         :nls_nchar_conv_excp     => nil,
         :nls_numeric_characters  => nil,
         :nls_sort                => nil,
@@ -589,6 +592,21 @@ module ActiveRecord
       # Executes a SQL statement
       def execute(sql, name = nil)
         log(sql, name) { @connection.exec(sql) }
+      end
+      #
+      # Explain plan for a running a SQL statement
+      #
+      def explain(sql, name = nil)
+        log(sql, "EXPLAIN #{name}") {
+          @connection.exec "EXPLAIN PLAN FOR  #{sql}"
+          @connection.exec "SELECT * FROM TABLE(dbms_xplan.display)"
+        }
+      end
+      #
+      # Prepare statement to can use with arrays for bulk insert
+      #
+      def prepare(sql, name = nil)
+        log(sql, "PREPARE #{name}") { @connection.prepare(sql) }
       end
 
       def substitute_at(column, index)

@@ -192,6 +192,34 @@ module ActiveRecord
 
       end
 
+      def select_page(sql, limit, offset)
+        cursor = raw_connection.exec(sql)
+        cols = []
+        # Ignore raw_rnum_ which is used to simulate LIMIT and OFFSET
+        cursor.get_col_names.each do |col_name|
+          col_name = oracle_downcase(col_name)
+          cols << col_name unless col_name == 'raw_rnum_'
+        end
+        # Reuse the same hash for all rows
+        column_hash = {}
+        cols.each { |c| column_hash[c] = nil }
+        rows = []
+        n = 0
+        while (n < limit) && (row = cursor.fetch)
+          if n >= offset
+            hash = column_hash.dup
+            cols.each_with_index do |col, i|
+              hash[col] = typecast_result_value(row[i], true)
+            end
+            rows << hash
+          end
+          n +=1
+        end
+        rows
+      ensure
+        cursor.close if cursor
+      end
+
       def select(sql, name = nil, return_column_names = false)
         cursor = @raw_connection.exec(sql)
         cols = []
@@ -356,6 +384,18 @@ module ActiveRecord
           value = config[key] || ENV[key.to_s.upcase] || default_value
           if value
             conn.exec "alter session set #{key} = '#{value}'"
+          end
+        end
+        OracleEnhancedAdapter::DEFAULT_SESSION_PARAMETERS.each do |key, default_value|
+          value = config[key] || ENV[key.to_s.upcase] || default_value
+          if value
+            conn.exec "alter session set #{key} = #{value}"
+          end
+        end
+        OracleEnhancedAdapter::DEFAULT_SESSION_SETTINGS.each do |key, default_value|
+          value = config[key] || default_value
+          if value
+            conn.exec "alter session #{key} #{value}"
           end
         end
         conn

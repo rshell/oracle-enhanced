@@ -9,7 +9,7 @@ end
 
 # check ruby-oci8 version
 required_oci8_version = [2, 0, 3]
-oci8_version_ints = OCI8::VERSION.scan(/\d+/).map{|s| s.to_i}
+oci8_version_ints = OCI8::VERSION.scan(/\d+/).map { |s| s.to_i }
 if (oci8_version_ints <=> required_oci8_version) < 0
   raise LoadError, "ERROR: ruby-oci8 version #{OCI8::VERSION} is too old. Please install ruby-oci8 version #{required_oci8_version.join('.')} or later."
 end
@@ -29,8 +29,8 @@ module ActiveRecord
       def raw_oci_connection
         if @raw_connection.is_a? OCI8
           @raw_connection
-        # ActiveRecord Oracle enhanced adapter puts OCI8EnhancedAutoRecover wrapper around OCI8
-        # in this case we need to pass original OCI8 connection
+          # ActiveRecord Oracle enhanced adapter puts OCI8EnhancedAutoRecover wrapper around OCI8
+          # in this case we need to pass original OCI8 connection
         else
           @raw_connection.instance_variable_get(:@connection)
         end
@@ -124,19 +124,19 @@ module ActiveRecord
             @raw_cursor.bind_param(position, nil, String)
           else
             case col_type = column && column.type
-            when :text, :binary
-              # ruby-oci8 cannot create CLOB/BLOB from ''
-              lob_value = value == '' ? ' ' : value
-              bind_type = col_type == :text ? OCI8::CLOB : OCI8::BLOB
-              ora_value = bind_type.new(@connection.raw_oci_connection, lob_value)
-              ora_value.size = 0 if value == ''
-              @raw_cursor.bind_param(position, ora_value)
-            when :raw
-              @raw_cursor.bind_param(position, OracleEnhancedAdapter.encode_raw(value))
-            when :decimal
-              @raw_cursor.bind_param(position, BigDecimal.new(value.to_s))
-            else
-              @raw_cursor.bind_param(position, value)
+              when :text, :binary
+                # ruby-oci8 cannot create CLOB/BLOB from ''
+                lob_value = value == '' ? ' ' : value
+                bind_type = col_type == :text ? OCI8::CLOB : OCI8::BLOB
+                ora_value = bind_type.new(@connection.raw_oci_connection, lob_value)
+                ora_value.size = 0 if value == ''
+                @raw_cursor.bind_param(position, ora_value)
+              when :raw
+                @raw_cursor.bind_param(position, OracleEnhancedAdapter.encode_raw(value))
+              when :decimal
+                @raw_cursor.bind_param(position, BigDecimal.new(value.to_s))
+              else
+                @raw_cursor.bind_param(position, value)
             end
           end
         end
@@ -156,8 +156,8 @@ module ActiveRecord
 #------------------------------------------------------------------------
 # Extra Patch to support bulk insert/update
 #
-        def bind_param_array(position, values,type = nil, max_item_length = nil)
-          @raw_cursor.bind_param_array(position, values,type, max_item_length)
+        def bind_param_array(position, values, type = nil, max_item_length = nil)
+          @raw_cursor.bind_param_array(position, values, type, max_item_length)
         end
 
         def max_array_size=(n)
@@ -167,6 +167,7 @@ module ActiveRecord
         def exec_array
           @raw_cursor.exec_array
         end
+
 #------------------------------------------------------------------------
 
         def get_col_names
@@ -230,7 +231,7 @@ module ActiveRecord
         end
         # Reuse the same hash for all rows
         column_hash = {}
-        cols.each {|c| column_hash[c] = nil}
+        cols.each { |c| column_hash[c] = nil }
         rows = []
         get_lob_value = !(name == 'Writable Large Object')
 
@@ -270,44 +271,44 @@ module ActiveRecord
       # Return OCIError error code
       def error_code(exception)
         case exception
-        when OCIError
-          exception.code
-        else
-          nil
+          when OCIError
+            exception.code
+          else
+            nil
         end
       end
 
       def typecast_result_value(value, get_lob_value)
         case value
-        when Fixnum, Bignum
-          value
-        when String
-          value
-        when Float, BigDecimal
-          # return Fixnum or Bignum if value is integer (to avoid issues with _before_type_cast values for id attributes)
-          value == (v_to_i = value.to_i) ? v_to_i : value
-        when OraNumber
-          # change OraNumber value (returned in early versions of ruby-oci8 2.0.x) to BigDecimal
-          value == (v_to_i = value.to_i) ? v_to_i : BigDecimal.new(value.to_s)
-        when OCI8::LOB
-          if get_lob_value
-            data = value.read || ""     # if value.read returns nil, then we have an empty_clob() i.e. an empty string
-            # In Ruby 1.9.1 always change encoding to ASCII-8BIT for binaries
-            data.force_encoding('ASCII-8BIT') if data.respond_to?(:force_encoding) && value.is_a?(OCI8::BLOB)
-            data
+          when Fixnum, Bignum
+            value
+          when String
+            value
+          when Float, BigDecimal
+            # return Fixnum or Bignum if value is integer (to avoid issues with _before_type_cast values for id attributes)
+            value == (v_to_i = value.to_i) ? v_to_i : value
+          when OraNumber
+            # change OraNumber value (returned in early versions of ruby-oci8 2.0.x) to BigDecimal
+            value == (v_to_i = value.to_i) ? v_to_i : BigDecimal.new(value.to_s)
+          when OCI8::LOB
+            if get_lob_value
+              data = value.read || "" # if value.read returns nil, then we have an empty_clob() i.e. an empty string
+              # In Ruby 1.9.1 always change encoding to ASCII-8BIT for binaries
+              data.force_encoding('ASCII-8BIT') if data.respond_to?(:force_encoding) && value.is_a?(OCI8::BLOB)
+              data
+            else
+              value
+            end
+          # ruby-oci8 1.0 returns OraDate
+          # ruby-oci8 2.0 returns Time or DateTime
+          when OraDate, Time, DateTime
+            if OracleEnhancedAdapter.emulate_dates && date_without_time?(value)
+              value.to_date
+            else
+              create_time_with_default_timezone(value)
+            end
           else
             value
-          end
-        # ruby-oci8 1.0 returns OraDate
-        # ruby-oci8 2.0 returns Time or DateTime
-        when OraDate, Time, DateTime
-          if OracleEnhancedAdapter.emulate_dates && date_without_time?(value)
-            value.to_date
-          else
-            create_time_with_default_timezone(value)
-          end
-        else
-          value
         end
       end
 
@@ -315,22 +316,22 @@ module ActiveRecord
 
       def date_without_time?(value)
         case value
-        when OraDate
-          value.hour == 0 && value.minute == 0 && value.second == 0
-        else
-          value.hour == 0 && value.min == 0 && value.sec == 0
+          when OraDate
+            value.hour == 0 && value.minute == 0 && value.second == 0
+          else
+            value.hour == 0 && value.min == 0 && value.sec == 0
         end
       end
-      
+
       def create_time_with_default_timezone(value)
         year, month, day, hour, min, sec, usec = case value
-        when Time
-          [value.year, value.month, value.day, value.hour, value.min, value.sec, value.usec]
-        when OraDate
-          [value.year, value.month, value.day, value.hour, value.minute, value.second, 0]
-        else
-          [value.year, value.month, value.day, value.hour, value.min, value.sec, 0]
-        end
+                                                   when Time
+                                                     [value.year, value.month, value.day, value.hour, value.min, value.sec, value.usec]
+                                                   when OraDate
+                                                     [value.year, value.month, value.day, value.hour, value.minute, value.second, 0]
+                                                   else
+                                                     [value.year, value.month, value.day, value.hour, value.min, value.sec, 0]
+                                                 end
         # code from Time.time_with_datetime_fallback
         begin
           Time.send(Base.default_timezone, year, month, day, hour, min, sec, usec)
@@ -341,7 +342,7 @@ module ActiveRecord
       end
 
     end
-    
+
     # The OracleEnhancedOCIFactory factors out the code necessary to connect and
     # configure an Oracle/OCI connection.
     class OracleEnhancedOCIFactory #:nodoc:
@@ -360,16 +361,16 @@ module ActiveRecord
 
         # connection using host, port and database name
         connection_string = if host || port
-          host ||= 'localhost'
-          host = "[#{host}]" if host =~ /^[^\[].*:/  # IPv6
-          port ||= 1521
-          database = "/#{database}" unless database.match(/^\//)
-          "//#{host}:#{port}#{database}"
-        # if no host is specified then assume that
-        # database parameter is TNS alias or TNS connection string
-        else
-          database
-        end
+                              host ||= 'localhost'
+                              host = "[#{host}]" if host =~ /^[^\[].*:/ # IPv6
+                              port ||= 1521
+                              database = "/#{database}" unless database.match(/^\//)
+                              "//#{host}:#{port}#{database}"
+                              # if no host is specified then assume that
+                              # database parameter is TNS alias or TNS connection string
+                            else
+                              database
+                            end
 
         conn = OCI8.new username, password, connection_string, privilege
         conn.autocommit = true
@@ -382,30 +383,39 @@ module ActiveRecord
         # Initialize NLS parameters
         OracleEnhancedAdapter::DEFAULT_NLS_PARAMETERS.each do |key, default_value|
           value = config[key] || ENV[key.to_s.upcase] || default_value
-          if value
+          begin
             conn.exec "alter session set #{key} = '#{value}'"
+          rescue => ex
+            puts ex.message
           end
         end
         OracleEnhancedAdapter::DEFAULT_SESSION_PARAMETERS.each do |key, default_value|
           value = config[key] || ENV[key.to_s.upcase] || default_value
           if value
-            conn.exec "alter session set #{key} = #{value}"
+            begin
+              conn.exec "alter session set #{key} = '#{value}'"
+            rescue => ex
+              puts ex.message
+            end
           end
         end
         OracleEnhancedAdapter::DEFAULT_SESSION_SETTINGS.each do |key, default_value|
           value = config[key] || default_value
           if value
-            conn.exec "alter session #{key} #{value}"
+            begin
+              conn.exec "alter session #{key} '#{value}'"
+            rescue => ex
+              puts ex.message
+            end
           end
         end
         conn
       end
     end
-    
-    
+
+
   end
 end
-
 
 
 class OCI8 #:nodoc:
@@ -417,17 +427,21 @@ class OCI8 #:nodoc:
       # when using ruby-oci8 2.0.
 
       alias :enhanced_define_a_column_pre_ar :define_a_column
+
       def define_a_column(i)
         case do_ocicall(@ctx) { @parms[i - 1].attrGet(OCI_ATTR_DATA_TYPE) }
-        when 8;   @stmt.defineByPos(i, String, 65535) # Read LONG values
-        when 187; @stmt.defineByPos(i, OraDate) # Read TIMESTAMP values
-        when 108
-          if @parms[i - 1].attrGet(OCI_ATTR_TYPE_NAME) == 'XMLTYPE'
-            @stmt.defineByPos(i, String, 65535)
+          when 8;
+            @stmt.defineByPos(i, String, 65535) # Read LONG values
+          when 187;
+            @stmt.defineByPos(i, OraDate) # Read TIMESTAMP values
+          when 108
+            if @parms[i - 1].attrGet(OCI_ATTR_TYPE_NAME) == 'XMLTYPE'
+              @stmt.defineByPos(i, String, 65535)
+            else
+              raise 'unsupported datatype'
+            end
           else
-            raise 'unsupported datatype'
-          end
-        else enhanced_define_a_column_pre_ar i
+            enhanced_define_a_column_pre_ar i
         end
       end
     end
@@ -457,15 +471,16 @@ class OCI8 #:nodoc:
       info = @desc.attrGet(OCI_ATTR_PARAM)
 
       case info.attrGet(OCI_ATTR_PTYPE)
-      when OCI_PTYPE_TABLE, OCI_PTYPE_VIEW
-        owner      = info.attrGet(OCI_ATTR_OBJ_SCHEMA)
-        table_name = info.attrGet(OCI_ATTR_OBJ_NAME)
-        [owner, table_name]
-      when OCI_PTYPE_SYN
-        schema = info.attrGet(OCI_ATTR_SCHEMA_NAME)
-        name   = info.attrGet(OCI_ATTR_NAME)
-        describe(schema + '.' + name)
-      else raise %Q{"DESC #{name}" failed; not a table or view.}
+        when OCI_PTYPE_TABLE, OCI_PTYPE_VIEW
+          owner = info.attrGet(OCI_ATTR_OBJ_SCHEMA)
+          table_name = info.attrGet(OCI_ATTR_OBJ_NAME)
+          [owner, table_name]
+        when OCI_PTYPE_SYN
+          schema = info.attrGet(OCI_ATTR_SCHEMA_NAME)
+          name = info.attrGet(OCI_ATTR_NAME)
+          describe(schema + '.' + name)
+        else
+          raise %Q{"DESC #{name}" failed; not a table or view.}
       end
     end
   end
@@ -494,7 +509,7 @@ class OCI8EnhancedAutoRecover < DelegateClass(OCI8) #:nodoc:
     @active = true
     @config = config
     @factory = factory
-    @connection  = @factory.new_connection @config
+    @connection = @factory.new_connection @config
     super @connection
   end
 
@@ -527,7 +542,7 @@ class OCI8EnhancedAutoRecover < DelegateClass(OCI8) #:nodoc:
   # ORA-03113: end-of-file on communication channel
   # ORA-03114: not connected to ORACLE
   # ORA-03135: connection lost contact
-  LOST_CONNECTION_ERROR_CODES = [ 28, 1012, 3113, 3114, 3135 ] #:nodoc:
+  LOST_CONNECTION_ERROR_CODES = [28, 1012, 3113, 3114, 3135] #:nodoc:
 
   # Adds auto-recovery functionality.
   #

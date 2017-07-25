@@ -387,10 +387,11 @@ module ActiveRecord
         :boolean => {:name => "NUMBER", :limit => 1},
         :raw => {:name => "RAW", :limit => 2000}
       }
-      # if emulate_booleans_from_strings then store booleans in VARCHAR2
-      NATIVE_DATABASE_TYPES_BOOLEAN_STRINGS = NATIVE_DATABASE_TYPES.dup.merge(
-        :boolean => {:name => "VARCHAR2", :limit => 1}
-      )
+      if emulate_booleans_from_strings #then store booleans in VARCHAR2
+        NATIVE_DATABASE_TYPES_BOOLEAN_STRINGS = NATIVE_DATABASE_TYPES.dup.merge(
+          :boolean => {:name => "VARCHAR2", :limit => 1}
+        )
+      end
       #:startdoc:
 
       def native_database_types #:nodoc:
@@ -748,7 +749,6 @@ module ActiveRecord
           @connection.select_page(sql, limit, offset)
         end
       end
-
 
 
       # Executes an INSERT statement and returns the new record's ID

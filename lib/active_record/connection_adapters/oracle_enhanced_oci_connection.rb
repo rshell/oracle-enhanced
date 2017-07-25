@@ -383,29 +383,34 @@ module ActiveRecord
         # Initialize NLS parameters
         OracleEnhancedAdapter::DEFAULT_NLS_PARAMETERS.each do |key, default_value|
           value = config[key] || ENV[key.to_s.upcase] || default_value
-          begin
-            conn.exec "alter session set #{key} = '#{value}'"
-          rescue => ex
-            puts ex.message
+          if value.present?
+            sql = "alter session set #{key} = '#{value}'"
+            begin
+              conn.exec sql
+            rescue Exception => ex
+              puts "#{sql}  has #{ex.message}"
+            end
           end
         end
         OracleEnhancedAdapter::DEFAULT_SESSION_PARAMETERS.each do |key, default_value|
           value = config[key] || ENV[key.to_s.upcase] || default_value
-          if value
+          if value.present?
+            sql = "alter session set #{key} = '#{value.to_i > 0 ? value : "'#{value}'"}'"
             begin
-              conn.exec "alter session set #{key} = '#{value}'"
-            rescue => ex
-              puts ex.message
+              conn.exec sql
+            rescue Exception => ex
+              puts "#{sql}  has #{ex.message}"
             end
           end
         end
         OracleEnhancedAdapter::DEFAULT_SESSION_SETTINGS.each do |key, default_value|
           value = config[key] || default_value
-          if value
+          if value.present?
+            sql = "alter session #{key} '#{value.to_i > 0 ? value : "'#{value}'"}'"
             begin
-              conn.exec "alter session #{key} '#{value}'"
-            rescue => ex
-              puts ex.message
+              conn.exec sql
+            rescue Exception => ex
+              puts "#{sql}  has #{ex.message}"
             end
           end
         end

@@ -956,7 +956,7 @@ module ActiveRecord
           value = value.to_yaml if col.text? && klass.serialized_attributes[col.name]
           uncached do
             sql = is_with_cpk ? "SELECT #{quote_column_name(col.name)} FROM #{quote_table_name(table_name)} WHERE #{klass.composite_where_clause(id)} FOR UPDATE" :
-              "SELECT #{quote_column_name(col.name)} FROM #{quote_table_name(table_name)} WHERE #{quote_column_name(klass.primary_key)} = #{id} FOR UPDATE"
+                    "SELECT #{quote_column_name(col.name)} FROM #{quote_table_name(table_name)} WHERE #{quote_column_name(klass.primary_key)} = #{id} FOR UPDATE"
             unless lob_record = select_one(sql, 'Writable Large Object')
               raise ActiveRecord::RecordNotFound, "statement #{sql} returned no rows"
             end
@@ -1136,11 +1136,11 @@ module ActiveRecord
       #
       #   ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.cache_columns = true
       cattr_accessor :cache_columns
-      self.cache_columns = false
+      self.cache_columns = true
 
       def columns(table_name, name = nil) #:nodoc:
         if @@cache_columns
-          @@columns_cache ||= {}
+          @@columns_cache ||= build_columns_cache
           @@columns_cache[table_name] ||= columns_without_cache(table_name, name)
         else
           columns_without_cache(table_name, name)
@@ -1209,6 +1209,76 @@ module ActiveRecord
         end
       end
 
+
+
+      def build_columns_cache() #:nodoc:
+        columns_cache = {}
+        old_table_name = nil
+
+        table_cols = <<-SQL.strip.gsub(/\s+/, ' ')
+          SELECT table_name, 
+                 column_name AS name, 
+                 data_type AS sql_type, 
+                 data_default, nullable, 
+                 virtual_column, 
+                 hidden_column, 
+                 data_type_owner AS sql_type_owner,
+                 DECODE(data_type, 'NUMBER', data_precision,
+                                   'FLOAT', data_precision,
+                                   'VARCHAR2', DECODE(char_used, 'C', char_length, data_length),
+                                   'RAW', DECODE(char_used, 'C', char_length, data_length),
+                                   'CHAR', DECODE(char_used, 'C', char_length, data_length),
+                                    NULL) AS limit,
+                 DECODE(data_type, 'NUMBER', data_scale, NULL) AS scale
+            FROM user_tab_cols
+           WHERE hidden_column = 'NO'
+           ORDER BY table_name,column_id
+        SQL
+
+        table_columns =[]
+        # added deletion of ignored columns
+        select_all(table_cols).each do |row|
+          limit, scale = row['limit'], row['scale']
+          if limit || scale
+            row['sql_type'] += "(#{(limit || 38).to_i}" + ((scale = scale.to_i) > 0 ? ",#{scale})" : ")")
+          end
+
+          if row['sql_type_owner']
+            row['sql_type'] = row['sql_type_owner'] + '.' + row['sql_type']
+          end
+
+          is_virtual = row['virtual_column']=='YES'
+          table_name = oracle_downcase(row['table_name'])
+
+          # clean up odd default spacing from Oracle
+          if row['data_default'] && !is_virtual
+            row['data_default'].sub!(/^(.*?)\s*$/, '\1')
+
+            # If a default contains a newline these cleanup regexes need to
+            # match newlines.
+            row['data_default'].sub!(/^'(.*)'$/m, '\1')
+            row['data_default'] = nil if row['data_default'] =~ /^(null|empty_[bc]lob\(\))$/i
+          end
+          old_table_name ||= table_name
+          if old_table_name != table_name
+            columns_cache[old_table_name] = table_columns
+            table_columns =[]
+            old_table_name = table_name
+          end
+          table_columns << OracleEnhancedColumn.new(oracle_downcase(row['name']),
+                                                    row['data_default'],
+                                                    row['sql_type'],
+                                                    row['nullable'] == 'Y',
+                                                    # pass table name for table specific column definitions
+                                                    table_name,
+                                                    # pass column type if specified in class definition
+                                                    get_type_for_column(table_name, oracle_downcase(row['name'])), is_virtual)
+        end
+        columns_cache
+      end
+
+
+
       # used just in tests to clear column cache
       def clear_columns_cache #:nodoc:
         @@columns_cache = nil
@@ -1223,6 +1293,11 @@ module ActiveRecord
         end
       end
 
+      def build_table_columns_cache
+        @@columns_cache = build_columns_cache
+        @@pk_and_sequence_for_cache = build_pk_and_sequence_cache
+      end
+
       ##
       # :singleton-method:
       # Specify default sequence start with value (by default 10000 if not explicitly set), e.g.:
@@ -1235,7 +1310,7 @@ module ActiveRecord
       # *Note*: Only primary key is implemented - sequence will be nil.
       def pk_and_sequence_for(table_name, owner=nil, desc_table_name=nil, db_link=nil) #:nodoc:
         if @@cache_columns
-          @@pk_and_sequence_for_cache ||= {}
+          @@pk_and_sequence_for_cache ||= build_pk_and_sequence_cache
           if @@pk_and_sequence_for_cache.key?(table_name)
             @@pk_and_sequence_for_cache[table_name]
           else
@@ -1262,6 +1337,28 @@ module ActiveRecord
 
         # only support single column keys
         pks.size == 1 ? [oracle_downcase(pks.first), nil] : nil
+      end
+
+      def build_pk_and_sequence_cache #:nodoc:
+        # changed back from user_constraints to all_constraints for consistency
+        pks = select_all(<<-SQL.strip.gsub(/\s+/, ' '), 'Primary Key')
+           SELECT c1.column_name,
+                  c1.table_name
+            FROM user_cons_columns c1
+            inner join user_constraints c on c.constraint_type = 'P' 
+                       AND c1.constraint_name = c.constraint_name 
+           WHERE c1.position = 1
+           AND not exists (select 1 from user_cons_columns c2 
+                           where c2.position = 2 AND c2.constraint_name = c1.constraint_name )
+           ORDER BY c1.table_name,c1.column_name
+        SQL
+        pk_cache ||={}
+        pks.each do |row|
+          table_name = oracle_downcase(row['table_name'])
+          column_name = oracle_downcase(row['column_name'])
+          pk_cache[table_name] = [column_name, nil]
+        end
+        pk_cache
       end
 
       # Returns just a table's primary key

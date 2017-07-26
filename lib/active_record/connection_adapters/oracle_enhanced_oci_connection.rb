@@ -395,7 +395,7 @@ module ActiveRecord
         OracleEnhancedAdapter::DEFAULT_SESSION_PARAMETERS.each do |key, default_value|
           value = config[key] || ENV[key.to_s.upcase] || default_value
           if value.present?
-            sql = "alter session set #{key} = '#{value.to_i > 0 ? value : "'#{value}'"}'"
+            sql = "alter session set #{key} = #{value.to_i > 0 ? value : "'#{value}'"}"
             begin
               conn.exec sql
             rescue Exception => ex
@@ -406,7 +406,7 @@ module ActiveRecord
         OracleEnhancedAdapter::DEFAULT_SESSION_SETTINGS.each do |key, default_value|
           value = config[key] || default_value
           if value.present?
-            sql = "alter session #{key} '#{value.to_i > 0 ? value : "'#{value}'"}'"
+            sql = "alter session #{key} #{value.to_i > 0 ? value : "'#{value}'"}"
             begin
               conn.exec sql
             rescue Exception => ex

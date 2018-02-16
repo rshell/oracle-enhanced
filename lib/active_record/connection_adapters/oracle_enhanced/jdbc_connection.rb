@@ -9,7 +9,7 @@ begin
     %w(ojdbc5.jar)
   elsif java_version =~ /^1.6/
     %w(ojdbc6.jar)
-  elsif java_version =~ /^1.7/
+  elsif java_version >= '1.7'
     # Oracle 11g client ojdbc6.jar is also compatible with Java 1.7
     # Oracle 12c client provides new ojdbc7.jar
     %w(ojdbc7.jar ojdbc6.jar)
@@ -43,7 +43,7 @@ begin
 
 rescue LoadError, NameError
   # JDBC driver is unavailable.
-  raise LoadError, "ERROR: ActiveRecord oracle_enhanced adapter could not load Oracle JDBC driver. Please install #{ojdbc_jars.join(' or ') || "Oracle JDBC"} library."
+  raise LoadError, "ERROR: ActiveRecord oracle_enhanced adapter could not load Oracle JDBC driver. Please install #{ojdbc_jars ? ojdbc_jars.join(' or ') : "Oracle JDBC"} library."
 end
 
 
@@ -109,8 +109,9 @@ module ActiveRecord
           host, port = config[:host], config[:port]
           privilege = config[:privilege] && config[:privilege].to_s
 
-          # connection using TNS alias
-          if database && !host && !config[:url] && ENV['TNS_ADMIN']
+          # connection using TNS alias, or connection-string from DATABASE_URL
+          using_tns_alias = !host && !config[:url] && ENV['TNS_ADMIN']
+          if database && (using_tns_alias || host == 'connection-string')
             url = "jdbc:oracle:thin:@#{database}"
           else
             unless database.match(/^(\:|\/)/)
@@ -159,8 +160,14 @@ module ActiveRecord
 
         self.autocommit = true
 
-        # default schema owner
-        @owner = username.upcase unless username.nil?
+        schema = config[:schema] && config[:schema].to_s
+        if schema.blank?
+          # default schema owner
+          @owner = username.upcase unless username.nil?
+        else
+          exec "alter session set current_schema = #{schema}"
+          @owner = schema
+        end
 
         @raw_connection
       end
@@ -525,6 +532,8 @@ module ActiveRecord
           else
             BigDecimal.new(d.stringValue)
           end
+        when :BINARY_FLOAT
+          rset.getFloat(i)
         when :VARCHAR2, :CHAR, :LONG, :NVARCHAR2, :NCHAR
           rset.getString(i)
         when :DATE

@@ -1,8 +1,17 @@
-require 'rubygems'
+require "rubygems"
 require "bundler"
+require "yaml"
 Bundler.setup(:default, :development)
 
 $:.unshift(File.expand_path('../../lib', __FILE__))
+config_path = File.expand_path('../spec_config.yaml', __FILE__)
+if File.exist?(config_path)
+  puts "==> Loading config from #{config_path}"
+  config = YAML.load_file(config_path)
+else
+  puts "==> Loading config from ENV or use default"
+  config = {"rails" => {}, "database" => {}}
+end
 
 require 'rspec'
 
@@ -13,68 +22,39 @@ elsif RUBY_ENGINE == 'jruby'
   puts "==> Running specs with JRuby version #{JRUBY_VERSION}"
 end
 
-ENV['RAILS_GEM_VERSION'] ||= '3.2-master'
-NO_COMPOSITE_PRIMARY_KEYS = true if ENV['RAILS_GEM_VERSION'] >= '2.3.5' || ENV['RAILS_GEM_VERSION'] =~ /^2\.3\.1\d$/
-
-puts "==> Running specs with Rails version #{ENV['RAILS_GEM_VERSION']}"
+NO_COMPOSITE_PRIMARY_KEYS = true
 
 require 'active_record'
 
-if ENV['RAILS_GEM_VERSION'] >= '3.0'
-  require 'action_dispatch'
-  require 'active_support/core_ext/module/attribute_accessors'
-  require 'active_support/core_ext/class/attribute_accessors'
+require 'action_dispatch'
+require 'active_support/core_ext/module/attribute_accessors'
+require 'active_support/core_ext/class/attribute_accessors'
 
-  if ENV['RAILS_GEM_VERSION'] =~ /^3.0.0.beta/
-    require "rails/log_subscriber"
-    require 'active_record/railties/log_subscriber'
-  else
-    require "active_support/log_subscriber"
-    require 'active_record/log_subscriber'
-  end
+require "active_support/log_subscriber"
+require 'active_record/log_subscriber'
 
-  require 'logger'
-elsif ENV['RAILS_GEM_VERSION'] =~ /^2.3/
-  require 'action_pack'
-  require 'action_controller/session/abstract_store'
-  require 'active_record/session_store'
-elsif ENV['RAILS_GEM_VERSION'] <= '2.3'
-  require 'action_pack'
-  require 'action_controller/session/active_record_store'
-end
+require 'logger'
 
 require 'active_record/connection_adapters/oracle_enhanced_adapter'
 require 'ruby-plsql'
+
+puts "==> Effective ActiveRecord version #{ActiveRecord::VERSION::STRING}"
 
 module LoggerSpecHelper
   def set_logger
     @logger = MockLogger.new
     @old_logger = ActiveRecord::Base.logger
 
-    if ENV['RAILS_GEM_VERSION'] >= '3.0'
-      @notifier = ActiveSupport::Notifications::Fanout.new
+    @notifier = ActiveSupport::Notifications::Fanout.new
 
-      ActiveSupport::LogSubscriber.colorize_logging = false
+    ActiveSupport::LogSubscriber.colorize_logging = false
 
-      ActiveRecord::Base.logger = @logger
-      @old_notifier = ActiveSupport::Notifications.notifier
-      ActiveSupport::Notifications.notifier = @notifier
+    ActiveRecord::Base.logger = @logger
+    @old_notifier = ActiveSupport::Notifications.notifier
+    ActiveSupport::Notifications.notifier = @notifier
 
-      ActiveRecord::LogSubscriber.attach_to(:active_record)
-      if ENV['RAILS_GEM_VERSION'] >= '3.2'
-        ActiveSupport::Notifications.subscribe("sql.active_record", ActiveRecord::ExplainSubscriber.new)
-      end
-    else # ActiveRecord 2.x
-      if ActiveRecord::Base.respond_to?(:connection_pool)
-        ActiveRecord::Base.connection_pool.clear_reloadable_connections!
-      else
-        ActiveRecord::Base.clear_active_connections!
-      end
-      ActiveRecord::Base.logger = @logger
-      ActiveRecord::Base.colorize_logging = false
-      # ActiveRecord::Base.logger.level = Logger::DEBUG
-    end
-
+    ActiveRecord::LogSubscriber.attach_to(:active_record)
+    ActiveSupport::Notifications.subscribe("sql.active_record", ActiveRecord::ExplainSubscriber.new)
   end
 
   class MockLogger
@@ -115,11 +95,8 @@ module LoggerSpecHelper
     ActiveRecord::Base.logger = @old_logger
     @logger = nil
 
-    if ENV['RAILS_GEM_VERSION'] >= '3.0'
-      ActiveSupport::Notifications.notifier = @old_notifier
-      @notifier = nil
-    end
-
+    ActiveSupport::Notifications.notifier = @old_notifier
+    @notifier = nil
   end
 
   # Wait notifications to be published (for Rails 3.0)
@@ -140,12 +117,13 @@ module SchemaSpecHelper
   end
 end
 
-DATABASE_NAME = ENV['DATABASE_NAME'] || 'orcl'
-DATABASE_HOST = ENV['DATABASE_HOST']
-DATABASE_PORT = ENV['DATABASE_PORT']
-DATABASE_USER = ENV['DATABASE_USER'] || 'oracle_enhanced'
-DATABASE_PASSWORD = ENV['DATABASE_PASSWORD'] || 'oracle_enhanced'
-DATABASE_SYS_PASSWORD = ENV['DATABASE_SYS_PASSWORD'] || 'admin'
+DATABASE_NAME         = config["database"]["name"]         || ENV['DATABASE_NAME']         || 'orcl'
+DATABASE_HOST         = config["database"]["host"]         || ENV['DATABASE_HOST']         || "127.0.0.1"
+DATABASE_PORT         = config["database"]["port"]         || ENV['DATABASE_PORT']         || 1521
+DATABASE_USER         = config["database"]["user"]         || ENV['DATABASE_USER']         || 'oracle_enhanced'
+DATABASE_PASSWORD     = config["database"]["password"]     || ENV['DATABASE_PASSWORD']     || 'oracle_enhanced'
+DATABASE_SCHEMA       = config["database"]["schema"]       || ENV['DATABASE_SCHEMA']       || 'oracle_enhanced_schema'
+DATABASE_SYS_PASSWORD = config["database"]["sys_password"] || ENV['DATABASE_SYS_PASSWORD'] || 'admin'
 
 CONNECTION_PARAMS = {
   :adapter => "oracle_enhanced",
@@ -154,6 +132,16 @@ CONNECTION_PARAMS = {
   :port => DATABASE_PORT,
   :username => DATABASE_USER,
   :password => DATABASE_PASSWORD
+}
+
+CONNECTION_WITH_SCHEMA_PARAMS = {
+  :adapter => "oracle_enhanced",
+  :database => DATABASE_NAME,
+  :host => DATABASE_HOST,
+  :port => DATABASE_PORT,
+  :username => DATABASE_USER,
+  :password => DATABASE_PASSWORD,
+  :schema => DATABASE_SCHEMA
 }
 
 SYS_CONNECTION_PARAMS = {
@@ -175,13 +163,15 @@ SYSTEM_CONNECTION_PARAMS = {
   :password => DATABASE_SYS_PASSWORD
 }
 
-DATABASE_NON_DEFAULT_TABLESPACE = ENV['DATABASE_NON_DEFAULT_TABLESPACE'] || "SYSTEM"
-
-# Set default $KCODE to UTF8
-if RUBY_VERSION < "1.9"
-  $KCODE = "UTF8"
-end
+DATABASE_NON_DEFAULT_TABLESPACE = config["database"]["non_default_tablespace"] || ENV['DATABASE_NON_DEFAULT_TABLESPACE'] || "SYSTEM"
 
 # set default time zone in TZ environment variable
 # which will be used to set session time zone
-ENV['TZ'] ||= 'Europe/Riga'
+ENV['TZ'] ||= config["timezone"] || 'Europe/Riga'
+
+# ActiveRecord::Base.logger = Logger.new(STDOUT)
+
+# Set default_timezone :local explicitly 
+# because this default value has been changed to :utc atrails master branch 
+ActiveRecord::Base.default_timezone = :local
+

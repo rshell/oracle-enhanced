@@ -6,7 +6,8 @@ describe "OracleEnhancedAdapter structure dump" do
   before(:all) do
     ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
     @conn = ActiveRecord::Base.connection
-    @oracle11g = !! @conn.select_value("SELECT * FROM v$version WHERE banner LIKE 'Oracle%11g%'")
+    @oracle11g_or_higher = !! @conn.select_value(
+      "select * from product_component_version where product like 'Oracle%' and to_number(substr(version,1,2)) >= 11")
   end
   describe "structure dump" do
     before(:each) do
@@ -19,11 +20,7 @@ describe "OracleEnhancedAdapter structure dump" do
       end
       class ::TestPost < ActiveRecord::Base
       end
-      if TestPost.respond_to?(:table_name=)
-        TestPost.table_name = "test_posts"
-      else
-        TestPost.set_table_name "test_posts"
-      end
+      TestPost.table_name = "test_posts"
     end
   
     after(:each) do
@@ -95,6 +92,7 @@ describe "OracleEnhancedAdapter structure dump" do
     end
     
     it "should dump composite foreign keys" do
+      skip "Composite foreign keys are not supported in this version"
       @conn.add_column :foos, :fooz_id, :integer
       @conn.add_column :foos, :baz_id, :integer
       
@@ -152,7 +150,7 @@ describe "OracleEnhancedAdapter structure dump" do
     end
   
     it "should dump virtual columns" do
-      pending "Not supported in this database version" unless @oracle11g
+      skip "Not supported in this database version" unless @oracle11g_or_higher
       @conn.execute <<-SQL
         CREATE TABLE bars (
           id          NUMBER(38,0) NOT NULL,
@@ -162,6 +160,19 @@ describe "OracleEnhancedAdapter structure dump" do
       SQL
       dump = ActiveRecord::Base.connection.structure_dump
       dump.should =~ /\"?ID_PLUS\"? NUMBER GENERATED ALWAYS AS \(ID\+2\) VIRTUAL/
+    end
+
+    it "should dump RAW virtual columns" do
+      skip "Not supported in this database version" unless @oracle11g_or_higher
+      @conn.execute <<-SQL
+        CREATE TABLE bars (
+          id          NUMBER(38,0) NOT NULL,
+          super       RAW(255) GENERATED ALWAYS AS \( HEXTORAW\(ID\) \) VIRTUAL,
+          PRIMARY KEY (ID)
+        )
+      SQL
+      dump = ActiveRecord::Base.connection.structure_dump
+      dump.should =~ /CREATE TABLE \"BARS\" \(\n\"ID\" NUMBER\(38,0\) NOT NULL,\n \"SUPER\" RAW\(255\) GENERATED ALWAYS AS \(HEXTORAW\(TO_CHAR\(ID\)\)\) VIRTUAL/
     end
 
     it "should dump unique keys" do
@@ -202,6 +213,33 @@ describe "OracleEnhancedAdapter structure dump" do
       dump.should =~ /CREATE  INDEX "?IX_TEST_POSTS_FOO_FOO_ID\"? ON "?TEST_POSTS"? \("?FOO"?, "?FOO_ID"?\)/i
       dump.should =~ /CREATE  INDEX "?IX_TEST_POSTS_FUNCTION\"? ON "?TEST_POSTS"? \(TO_CHAR\(LENGTH\("?FOO"?\)\)\|\|"?FOO"?\)/i
     end
+
+    it "should dump RAW columns" do
+      @conn.execute <<-SQL
+        CREATE TABLE bars (
+          id          NUMBER(38,0) NOT NULL,
+          super       RAW(255),
+          PRIMARY KEY (ID)
+        )
+      SQL
+      dump = ActiveRecord::Base.connection.structure_dump
+      dump.should =~ /CREATE TABLE \"BARS\" \(\n\"ID\" NUMBER\(38,0\) NOT NULL,\n \"SUPER\" RAW\(255\)/
+    end
+
+    it "should dump table comments" do
+      comment_sql = %Q(COMMENT ON TABLE "TEST_POSTS" IS 'Test posts with ''some'' "quotes"')
+      @conn.execute comment_sql
+      dump = ActiveRecord::Base.connection.structure_dump
+      dump.should =~ /#{comment_sql}/
+    end
+
+    it "should dump column comments" do
+      comment_sql = %Q(COMMENT ON COLUMN "TEST_POSTS"."TITLE" IS 'The title of the post with ''some'' "quotes"')
+      @conn.execute comment_sql
+      dump = ActiveRecord::Base.connection.structure_dump
+      dump.should =~ /#{comment_sql}/
+    end
+
   end
   describe "temporary tables" do
     after(:all) do
@@ -259,7 +297,7 @@ describe "OracleEnhancedAdapter structure dump" do
   describe "full drop" do
     before(:each) do 
       @conn.create_table :full_drop_test do |t|
-        t.integer :id
+        t.string :foo
       end
       @conn.create_table :full_drop_test_temp, :temporary => true do |t|
         t.string :foo

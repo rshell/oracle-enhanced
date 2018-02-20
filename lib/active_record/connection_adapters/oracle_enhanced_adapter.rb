@@ -1054,11 +1054,11 @@ module ActiveRecord
       #
       #   ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.cache_columns = true
       cattr_accessor :cache_columns
-      self.cache_columns = true
+      self.cache_columns = false
 
       def columns(table_name, name = nil) #:nodoc:
         if @@cache_columns
-          @@columns_cache ||= build_columns_cache
+          @@columns_cache ||= {} #build_columns_cache
           @@columns_cache[table_name] ||= columns_without_cache(table_name, name)
         else
           columns_without_cache(table_name, name)
@@ -1225,6 +1225,7 @@ module ActiveRecord
             table_columns =[]
             old_table_name = table_name
           end
+          #OracleEnhancedColumn.new(name, default, cast_type, sql_type, null, table_name, virtual, returning_id)
           table_columns << OracleEnhancedColumn.new(oracle_downcase(row['name']),
                                                     row['data_default'],
                                                     row['sql_type'],
@@ -1255,7 +1256,7 @@ module ActiveRecord
 
       def build_table_columns_cache
         @@columns_cache = build_columns_cache
-        @@pk_and_sequence_for_cache = build_pk_and_sequence_cache
+        @@pk_and_sequence_for_cache = {} #build_pk_and_sequence_cache
       end
 
       ##
@@ -1270,7 +1271,7 @@ module ActiveRecord
       # *Note*: Only primary key is implemented - sequence will be nil.
       def pk_and_sequence_for(table_name, owner=nil, desc_table_name=nil, db_link=nil) #:nodoc:
         if @@cache_columns
-          @@pk_and_sequence_for_cache ||= build_pk_and_sequence_cache
+          @@pk_and_sequence_for_cache ||= {}  # build_pk_and_sequence_cache
           if @@pk_and_sequence_for_cache.key?(table_name)
             @@pk_and_sequence_for_cache[table_name]
           else

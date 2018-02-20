@@ -229,7 +229,7 @@ describe "OracleEnhancedAdapter" do
 
       it "should get primary key from database at first time" do
         TestEmployee.connection.pk_and_sequence_for('test_employees').should == ['id', nil]
-        @logger.logged(:debug).last.should =~ /select .* from all_constraints/im
+        @logger.logged(:debug).last.should =~ /select .* from user_cons_columns/im
       end
 
       it "should get primary key from cache at first time" do

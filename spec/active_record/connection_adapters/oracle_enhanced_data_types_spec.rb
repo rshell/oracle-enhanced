@@ -515,11 +515,11 @@ describe "OracleEnhancedAdapter boolean type detection based on string column ty
       create_employee3
       %w(has_email active_flag).each do |col|
         @employee3.send(col.to_sym).class.should == TrueClass
-        @employee3.send((col+"_before_type_cast").to_sym).should == "Y"
+        @employee3.send((col+"_before_type_cast").to_sym).should == "1"
       end
       %w(has_phone manager_yn).each do |col|
         @employee3.send(col.to_sym).class.should == FalseClass
-        @employee3.send((col+"_before_type_cast").to_sym).should == "N"
+        @employee3.send((col+"_before_type_cast").to_sym).should == "0"
       end
     end
 
@@ -534,10 +534,10 @@ describe "OracleEnhancedAdapter boolean type detection based on string column ty
       Test3Employee.set_boolean_columns :test_boolean
       create_employee3(:test_boolean => true)
       @employee3.test_boolean.class.should == TrueClass
-      @employee3.test_boolean_before_type_cast.should == "Y"
+      @employee3.test_boolean_before_type_cast.should == "1"
       create_employee3(:test_boolean => false)
       @employee3.test_boolean.class.should == FalseClass
-      @employee3.test_boolean_before_type_cast.should == "N"
+      @employee3.test_boolean_before_type_cast.should == "0"
       create_employee3(:test_boolean => nil)
       @employee3.test_boolean.class.should == NilClass
       @employee3.test_boolean_before_type_cast.should == nil

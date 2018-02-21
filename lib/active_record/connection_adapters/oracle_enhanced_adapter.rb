@@ -829,6 +829,7 @@ module ActiveRecord
         unless primary_key and sequence_name
         # *Note*: Only primary key is implemented - sequence will be nil.
           primary_key, sequence_name = pk_and_sequence_for(table_name)
+          return nil if (primary_key.blank? || :integer != get_type_for_column(table_name, primary_key))
           # TODO This sequence_name implemantation is just enough
           # to satisty fixures. To get correct sequence_name always
           # pk_and_sequence_for method needs some work.
@@ -842,6 +843,7 @@ module ActiveRecord
         if @logger && primary_key && !sequence_name
           @logger.warn "#{table_name} has primary key #{primary_key} with no default sequence"
         end
+
 
         if primary_key && sequence_name
           new_start_value = select_value("

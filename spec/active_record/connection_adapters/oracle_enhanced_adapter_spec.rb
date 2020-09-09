@@ -59,7 +59,6 @@ describe "OracleEnhancedAdapter" do
     end
 
     describe "without column caching" do
-
       it "should identify virtual columns as such" do
         skip "Not supported in this database version" unless @conn.supports_virtual_columns?
         te = TestEmployee.connection.columns("test_employees").detect(&:virtual?)
@@ -106,56 +105,6 @@ describe "OracleEnhancedAdapter" do
         expect(@logger.logged(:debug).first).to match(/SELECT \"TEST_EMPLOYEES_SEQ\".NEXTVAL FROM dual/im)
       end
     end
-  end
-
-  describe "access table over database link" do
-    before(:all) do
-      @conn = ActiveRecord::Base.connection
-      @db_link = "db_link"
-      @sys_conn = ActiveRecord::Base.oracle_enhanced_connection(SYSTEM_CONNECTION_PARAMS)
-      @sys_conn.drop_table :test_posts, if_exists: true
-      @sys_conn.create_table :test_posts do |t|
-        t.string      :title
-        # cannot update LOBs over database link
-        t.string      :body
-        t.timestamps null: true
-      end
-      @db_link_username = SYSTEM_CONNECTION_PARAMS[:username]
-      @db_link_password = SYSTEM_CONNECTION_PARAMS[:password]
-      @db_link_database = SYSTEM_CONNECTION_PARAMS[:database]
-      @conn.execute "DROP DATABASE LINK #{@db_link}" rescue nil
-      @conn.execute "CREATE DATABASE LINK #{@db_link} CONNECT TO #{@db_link_username} IDENTIFIED BY \"#{@db_link_password}\" USING '#{@db_link_database}'"
-      @conn.execute "CREATE OR REPLACE SYNONYM test_posts FOR test_posts@#{@db_link}"
-      @conn.execute "CREATE OR REPLACE SYNONYM test_posts_seq FOR test_posts_seq@#{@db_link}"
-      class ::TestPost < ActiveRecord::Base
-      end
-      TestPost.table_name = "test_posts"
-    end
-
-    after(:all) do
-      @conn.execute "DROP SYNONYM test_posts"
-      @conn.execute "DROP SYNONYM test_posts_seq"
-      @conn.execute "DROP DATABASE LINK #{@db_link}" rescue nil
-      @sys_conn.drop_table :test_posts, if_exists: true
-      Object.send(:remove_const, "TestPost") rescue nil
-      @conn.clear_table_columns_cache(:test_posts)
-      ActiveRecord::Base.clear_cache!
-    end
-
-    it "should verify database link" do
-      @conn.select_value("select * from dual@#{@db_link}") == "X"
-    end
-
-    it "should get column names" do
-      expect(TestPost.column_names).to eq(["id", "title", "body", "created_at", "updated_at"])
-    end
-
-    it "should create record" do
-      p = TestPost.create(title: "Title", body: "Body")
-      expect(p.id).not_to be_nil
-      expect(TestPost.find(p.id)).not_to be_nil
-    end
-
   end
 
   describe "session information" do
@@ -242,7 +191,6 @@ describe "OracleEnhancedAdapter" do
       posts = TestPost.includes(:test_comments).to_a
       expect(posts.size).to eq(@ids.size)
     end
-
   end
 
   describe "with statement pool" do
@@ -343,12 +291,11 @@ describe "OracleEnhancedAdapter" do
       @employee = Class.new(ActiveRecord::Base) do
         self.table_name = :test_employees
       end
-      i = 0
-      @employee.create!(sort_order: i += 1, first_name: "Peter",   last_name: "Parker")
-      @employee.create!(sort_order: i += 1, first_name: "Tony",    last_name: "Stark")
-      @employee.create!(sort_order: i += 1, first_name: "Steven",  last_name: "Rogers")
-      @employee.create!(sort_order: i += 1, first_name: "Bruce",   last_name: "Banner")
-      @employee.create!(sort_order: i += 1, first_name: "Natasha", last_name: "Romanova")
+      @employee.create!(sort_order: 1, first_name: "Peter",   last_name: "Parker")
+      @employee.create!(sort_order: 2, first_name: "Tony",    last_name: "Stark")
+      @employee.create!(sort_order: 3, first_name: "Steven",  last_name: "Rogers")
+      @employee.create!(sort_order: 4, first_name: "Bruce",   last_name: "Banner")
+      @employee.create!(sort_order: 5, first_name: "Natasha", last_name: "Romanova")
     end
 
     after(:all) do
@@ -532,43 +479,32 @@ describe "OracleEnhancedAdapter" do
     end
 
     it "should return array from indexes with bind usage" do
-      expect(@conn.indexes("TEST_POSTS").class).to eq Array
-      expect(@logger.logged(:debug).last).to match(/:owner/)
-      expect(@logger.logged(:debug).last).to match(/\[\["owner", "#{DATABASE_USER.upcase}"\], \["owner", "#{DATABASE_USER.upcase}"\], \["table_name", "TEST_POSTS"\]\]/)
-    end
-
-    it "should not have primary key trigger with bind usage" do
-      expect(@conn.has_primary_key_trigger?("TEST_POSTS")).to eq false
-      expect(@logger.logged(:debug).last).to match(/:owner/)
-      expect(@logger.logged(:debug).last).to match(/:table_name/)
-      expect(@logger.logged(:debug).last).to match(/\[\["owner", "#{DATABASE_USER.upcase}"\], \["trigger_name", "TEST_POSTS_PKT"\], \["owner", "#{DATABASE_USER.upcase}"\], \["table_name", "TEST_POSTS"\]\]/)
-    end
+       expect(@conn.indexes("TEST_POSTS").class).to eq Array
+       expect(@logger.logged(:debug).last).to match(/:table_name/)
+       expect(@logger.logged(:debug).last).to match(/\["table_name", "TEST_POSTS"\]/)
+     end
 
     it "should return content from columns without bind usage" do
       expect(@conn.columns("TEST_POSTS").length).to be > 0
-      expect(@logger.logged(:debug).last).not_to match(/:owner/)
       expect(@logger.logged(:debug).last).not_to match(/:table_name/)
-      expect(@logger.logged(:debug).last).not_to match(/\[\["owner", "#{DATABASE_USER.upcase}"\], \["table_name", "TEST_POSTS"\]\]/)
+      expect(@logger.logged(:debug).last).not_to match(/\["table_name", "TEST_POSTS"\]/)
     end
 
     it "should return pk and sequence from pk_and_sequence_for without bind usage" do
       expect(@conn.pk_and_sequence_for("TEST_POSTS").length).to eq 2
-      expect(@logger.logged(:debug).last).not_to match(/:owner/)
-      expect(@logger.logged(:debug).last).not_to match(/\[\["owner", "#{DATABASE_USER.upcase}"\], \["table_name", "TEST_POSTS"\]\]/)
+      expect(@logger.logged(:debug).last).not_to match(/\["table_name", "TEST_POSTS"\]/)
     end
 
     it "should return pk from primary_keys with bind usage" do
       expect(@conn.primary_keys("TEST_POSTS")).to eq ["id"]
-      expect(@logger.logged(:debug).last).to match(/:owner/)
-      expect(@logger.logged(:debug).last).to match(/\[\["owner", "#{DATABASE_USER.upcase}"\], \["table_name", "TEST_POSTS"\]\]/)
+      expect(@logger.logged(:debug).last).to match(/\["table_name", "TEST_POSTS"\]/)
     end
 
     it "should return false from temporary_table? with bind usage" do
       expect(@conn.temporary_table?("TEST_POSTS")).to eq false
       expect(@logger.logged(:debug).last).to match(/:table_name/)
-      expect(@logger.logged(:debug).last).to match(/\[\["table_name", "TEST_POSTS"\]\]/)
+      expect(@logger.logged(:debug).last).to match(/\["table_name", "TEST_POSTS"\]/)
     end
-
   end
 
   describe "Transaction" do
@@ -580,7 +516,7 @@ describe "OracleEnhancedAdapter" do
       end
       class ::TestPost < ActiveRecord::Base
       end
-      Thread.report_on_exception, @original_report_on_exception = false, Thread.report_on_exception if Thread.respond_to?(:report_on_exception)
+      Thread.report_on_exception, @original_report_on_exception = false, Thread.report_on_exception
     end
 
     it "Raises Deadlocked when a deadlock is encountered" do
@@ -595,7 +531,7 @@ describe "OracleEnhancedAdapter" do
           TestPost.transaction do
             t1.lock!
             barrier.wait
-            t2.update_attributes(title: "one")
+            t2.update(title: "one")
           end
         end
 
@@ -603,7 +539,7 @@ describe "OracleEnhancedAdapter" do
           TestPost.transaction do
             t2.lock!
             barrier.wait
-            t1.update_attributes(title: "two")
+            t1.update(title: "two")
           end
         ensure
           thread.join
@@ -617,7 +553,71 @@ describe "OracleEnhancedAdapter" do
       end
       Object.send(:remove_const, "TestPost") rescue nil
       ActiveRecord::Base.clear_cache!
-      Thread.report_on_exception = @original_report_on_exception if Thread.respond_to?(:report_on_exception)
+      Thread.report_on_exception = @original_report_on_exception
+    end
+  end
+
+  describe "Sequence" do
+    before(:all) do
+      ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
+      @conn = ActiveRecord::Base.connection
+      schema_define do
+        create_table :table_with_name_thats_just_ok,
+          sequence_name: "suitably_short_seq", force: true do |t|
+          t.column :foo, :string, null: false
+        end
+      end
+    end
+    after(:all) do
+      schema_define do
+        drop_table :table_with_name_thats_just_ok,
+          sequence_name: "suitably_short_seq" rescue nil
+      end
+    end
+    it "should create table with custom sequence name" do
+      expect(@conn.select_value("select suitably_short_seq.nextval from dual")).to eq(1)
+    end
+  end
+
+  describe "Hints" do
+    before(:all) do
+      ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
+      @conn = ActiveRecord::Base.connection
+      schema_define do
+        drop_table :test_posts, if_exists: true
+        create_table :test_posts
+      end
+      class ::TestPost < ActiveRecord::Base
+      end
+    end
+
+    before(:each) do
+      @conn.clear_cache!
+      set_logger
+    end
+
+    after(:each) do
+      clear_logger
+    end
+
+    after(:all) do
+      schema_define do
+        drop_table :test_posts
+      end
+      Object.send(:remove_const, "TestPost")
+      ActiveRecord::Base.clear_cache!
+    end
+
+    it "should explain considers hints" do
+      post = TestPost.optimizer_hints("FULL (\"TEST_POSTS\")")
+      post = post.where(id: 1)
+      expect(post.explain).to include("|  TABLE ACCESS FULL| TEST_POSTS |")
+    end
+
+    it "should explain considers hints with /*+ */ " do
+      post = TestPost.optimizer_hints("/*+ FULL (\"TEST_POSTS\") */")
+      post = post.where(id: 1)
+      expect(post.explain).to include("|  TABLE ACCESS FULL| TEST_POSTS |")
     end
   end
 end

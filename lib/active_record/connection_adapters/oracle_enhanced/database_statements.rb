@@ -13,17 +13,9 @@ module ActiveRecord
           log(sql, name) { @connection.exec(sql) }
         end
 
-        #
-        # Prepare statement to can use with arrays for bulk insert
-        #
-        def prepare(sql, name = nil)
-          log(sql, "PREPARE #{name}") { @connection.prepare(sql) }
-        end
-
-
-        def clear_cache!
-          @statements.clear
+        def clear_cache! # :nodoc:
           reload_type_map
+          super
         end
 
         def exec_query(sql, name = "SQL", binds = [], prepare: false)
@@ -86,8 +78,8 @@ module ActiveRecord
 
         # New method in ActiveRecord 3.1
         # Will add RETURNING clause in case of trigger generated primary keys
-        def sql_for_insert(sql, pk, id_value, sequence_name, binds)
-          unless id_value || pk == false || pk.nil? ||  pk.is_a?(Array)
+        def sql_for_insert(sql, pk, binds)
+          unless pk == false || pk.nil? || pk.is_a?(Array)
             sql = "#{sql} RETURNING #{quote_column_name(pk)} INTO :returning_id"
             (binds = binds.dup) << ActiveRecord::Relation::QueryAttribute.new("returning_id", nil, Type::OracleEnhanced::Integer.new)
           end
@@ -101,7 +93,7 @@ module ActiveRecord
 
         # New method in ActiveRecord 3.1
         def exec_insert(sql, name = nil, binds = [], pk = nil, sequence_name = nil)
-          sql, binds = sql_for_insert(sql, pk, nil, sequence_name, binds)
+          sql, binds = sql_for_insert(sql, pk, binds)
           type_casted_binds = type_casted_binds(binds)
 
           log(sql, name, binds, type_casted_binds) do
@@ -120,7 +112,7 @@ module ActiveRecord
 
                 cursor.bind_params(type_casted_binds)
 
-                if sql =~ /:returning_id/
+                if /:returning_id/.match?(sql)
                   # it currently expects that returning_id comes last part of binds
                   returning_id_index = binds.size
                   cursor.bind_returning_param(returning_id_index, Integer)
@@ -237,17 +229,6 @@ module ActiveRecord
           end
         end
 
-        # fallback to non bulk fixture insert
-        def insert_fixtures(fixtures, table_name)
-          ActiveSupport::Deprecation.warn(<<-MSG.squish)
-            `insert_fixtures` is deprecated and will be removed in the next version of Rails.
-            Consider using `insert_fixtures_set` for performance improvement.
-          MSG
-          fixtures.each do |fixture|
-            insert_fixture(fixture, table_name)
-          end
-        end
-
         def insert_fixtures_set(fixture_set, tables_to_delete = [])
           disable_referential_integrity do
             transaction(requires_new: true) do
@@ -278,7 +259,7 @@ module ActiveRecord
               value = klass.attribute_types[col.name].serialize(value)
             end
             uncached do
-              unless lob_record = select_one(sql = <<-SQL.strip.gsub(/\s+/, " "), "Writable Large Object")
+              unless lob_record = select_one(sql = <<~SQL.squish, "Writable Large Object")
                 SELECT #{quote_column_name(col.name)} FROM #{quote_table_name(table_name)}
                 WHERE #{quote_column_name(klass.primary_key)} = #{id} FOR UPDATE
               SQL
@@ -293,12 +274,10 @@ module ActiveRecord
         private
           def with_retry
             @connection.with_retry do
-              begin
-                yield
-              rescue
-                @statements.clear
-                raise
-              end
+              yield
+            rescue
+              @statements.clear
+              raise
             end
           end
       end

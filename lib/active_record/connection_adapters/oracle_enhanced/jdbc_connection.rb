@@ -18,7 +18,7 @@ begin
   # Oracle 12c Release 2 client provides ojdbc8.jar
   ojdbc_jars = %w(ojdbc8.jar ojdbc7.jar ojdbc6.jar)
 
-  if ENV_JAVA["java.class.path"] !~ Regexp.new(ojdbc_jars.join("|"))
+  if !ENV_JAVA["java.class.path"]&.match?(Regexp.new(ojdbc_jars.join("|")))
     # On Unix environment variable should be PATH, on Windows it is sometimes Path
     env_path = (ENV["PATH"] || ENV["Path"] || "").split(File::PATH_SEPARATOR)
     # Look for JDBC driver at first in lib subdirectory (application specific JDBC file version)
@@ -26,7 +26,7 @@ begin
     ["./lib"].concat($LOAD_PATH).concat(env_path).detect do |dir|
       # check any compatible JDBC driver in the priority order
       ojdbc_jars.any? do |ojdbc_jar|
-        if File.exists?(file_path = File.join(dir, ojdbc_jar))
+        if File.exist?(file_path = File.join(dir, ojdbc_jar))
           require file_path
           true
         end
@@ -113,7 +113,7 @@ module ActiveRecord
             if database && (using_tns_alias || host == "connection-string")
               url = "jdbc:oracle:thin:@#{database}"
             else
-              unless database.match(/^(\:|\/)/)
+              unless database.match?(/^(\:|\/)/)
                 # assume database is a SID if no colon or slash are supplied (backward-compatibility)
                 database = ":#{database}"
               end
@@ -125,6 +125,8 @@ module ActiveRecord
             time_zone = config[:time_zone] || ENV["TZ"] || java.util.TimeZone.default.getID
 
             properties = java.util.Properties.new
+            raise "username not set" unless username
+            raise "password not set" unless password
             properties.put("user", username)
             properties.put("password", password)
             properties.put("defaultRowPrefetch", "#{prefetch_rows}") if prefetch_rows
@@ -159,6 +161,10 @@ module ActiveRecord
             if value
               exec "alter session set #{key} = '#{value}'"
             end
+          end
+
+          OracleEnhancedAdapter::FIXED_NLS_PARAMETERS.each do |key, value|
+            exec "alter session set #{key} = '#{value}'"
           end
 
           self.autocommit = true
@@ -312,6 +318,8 @@ module ActiveRecord
               @raw_statement.setClob(position, value)
             when Type::OracleEnhanced::Raw
               @raw_statement.setString(position, OracleEnhanced::Quoting.encode_raw(value))
+            when Type::OracleEnhanced::CharacterString::Data
+              @raw_statement.setFixedCHAR(position, value.to_s)
             when String
               @raw_statement.setString(position, value)
             when Java::OracleSql::DATE
@@ -470,8 +478,13 @@ module ActiveRecord
             end
           when :BINARY_FLOAT
             rset.getFloat(i)
-          when :VARCHAR2, :CHAR, :LONG, :NVARCHAR2, :NCHAR
+          when :VARCHAR2, :LONG, :NVARCHAR2
             rset.getString(i)
+          when :CHAR, :NCHAR
+            char_str = rset.getString(i)
+            if !char_str.nil?
+              char_str.rstrip
+            end
           when :DATE
             if dt = rset.getDATE(i)
               d = dt.dateValue

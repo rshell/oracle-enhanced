@@ -1,20 +1,14 @@
 # frozen_string_literal: true
 
-begin
-  require "bundler/inline"
-rescue LoadError => e
-  $stderr.puts "Bundler version 1.10 or later is required. Please update your Bundler"
-  raise e
-end
+require "bundler/inline"
 
 gemfile(true) do
   source "https://rubygems.org"
 
   git_source(:github) { |repo| "https://github.com/#{repo}.git" }
 
-  gem "rails", github: "rails/rails", branch: "5-2-stable"
-  gem "arel", github: "rails/arel", branch: "master"
-  gem "activerecord-oracle_enhanced-adapter",  github: "rsim/oracle-enhanced", branch: "release52"
+  gem "rails", github: "rails/rails", branch: "6-0-stable"
+  gem "activerecord-oracle_enhanced-adapter",  github: "rsim/oracle-enhanced", branch: "release60"
   gem "rspec"
 
   platforms :ruby do

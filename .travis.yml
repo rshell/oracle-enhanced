@@ -1,4 +1,4 @@
-dist: trusty
+dist: xenial
 sudo: required
 cache: bundler
 
@@ -27,21 +27,17 @@ install:
   - .travis/oracle/download.sh
   - .travis/oracle/install.sh
   - .travis/setup_accounts.sh
-  -  'gem install bundler || gem install bundler -v 1.17.3'
+  - ruby -v
   - bundle install
 
 language: ruby
 rvm:
-  - 2.2.10
-  - 2.3.7
-  - 2.4.6
-  - 2.5.5
-  - 2.6.2
-  - jruby-9.2.6.0
+  - 2.7.0
+  - 2.6.5
+  - 2.5.7
+  - jruby-9.2.9.0
+  - ruby-head
   - jruby-head
 
-matrix:
-   allow_failures:
-     - rvm: jruby-head
 notifications:
     email: false

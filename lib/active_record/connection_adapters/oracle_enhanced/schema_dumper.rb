@@ -13,8 +13,6 @@ module ActiveRecord #:nodoc:
               # add table prefix or suffix for schema_migrations
               next if ignored? tbl
               table(tbl, stream)
-              # add primary key trigger if table has it
-              primary_key_trigger(tbl, stream)
             end
             # following table definitions
             # add foreign keys if table has them
@@ -27,22 +25,12 @@ module ActiveRecord #:nodoc:
             synonyms(stream)
           end
 
-          def primary_key_trigger(table_name, stream)
-            if @connection.has_primary_key_trigger?(table_name)
-              pk, _pk_seq = @connection.pk_and_sequence_for(table_name)
-              stream.print "  add_primary_key_trigger #{table_name.inspect}"
-              stream.print ", primary_key: \"#{pk}\"" if pk != "id"
-              stream.print "\n\n"
-            end
-          end
-
           def synonyms(stream)
             syns = @connection.synonyms
             syns.each do |syn|
               next if ignored? syn.name
               table_name = syn.table_name
               table_name = "#{syn.table_owner}.#{table_name}" if syn.table_owner
-              table_name = "#{table_name}@#{syn.db_link}" if syn.db_link
               stream.print "  add_synonym #{syn.name.inspect}, #{table_name.inspect}, force: true"
               stream.puts
             end
@@ -97,6 +85,8 @@ module ActiveRecord #:nodoc:
           def table(table, stream)
             columns = @connection.columns(table)
             begin
+              self.table_name = table
+
               tbl = StringIO.new
 
               # first dump primary key column
@@ -156,6 +146,8 @@ module ActiveRecord #:nodoc:
               stream.puts "# Could not dump table #{table.inspect} because of following #{e.class}"
               stream.puts "#   #{e.message}"
               stream.puts
+            ensure
+              self.table_name = nil
             end
           end
 
@@ -176,10 +168,9 @@ module ActiveRecord #:nodoc:
 
           def extract_expression_for_virtual_column(column)
             column_name = column.name
-            table_name = column.table_name
-            @connection.select_value(<<-SQL.strip.gsub(/\s+/, " "), "Table comment", [bind_string("table_name", table_name.upcase), bind_string("column_name", column_name.upcase)]).inspect
+            @connection.select_value(<<~SQL.squish, "Table comment", [bind_string("table_name", table_name.upcase), bind_string("column_name", column_name.upcase)]).inspect
               select data_default from all_tab_columns
-              where owner = SYS_CONTEXT('userenv', 'session_user')
+              where owner = SYS_CONTEXT('userenv', 'current_schema')
               and table_name = :table_name
               and column_name = :column_name
             SQL

@@ -3,36 +3,24 @@ activerecord-oracle_enhanced-adapter
 
 Oracle enhanced adapter for ActiveRecord
 
-This version is modified to allow sql bulk operations and show explains plans.
-
-   explain(sql, name = nil)
-
-Running a prepared statement  need linked acts_as_bulk_many plugin to do active record side then on oracle needed :-
-
-1) Prepare statement for use
-
-    prepare(sql, name = nil)
-
-2) correctly typed arrays to statement
-
-      bind_param_array(position, values,type = nil, max_item_length = nil)
-
-3) Set array size
-
-      max_array_size=(n)
-
-4) Run statement
-
-      exec_array()
-
-
 DESCRIPTION
 -----------
 
-Oracle enhanced ActiveRecord adapter provides Oracle database access from Ruby on Rails applications. Oracle enhanced adapter can be used from Ruby on Rails versions between 2.3.x and 5.1 and it is working with Oracle database versions from 10g to 12c.
+Oracle enhanced ActiveRecord adapter provides Oracle database access from Ruby on Rails applications. Oracle enhanced adapter can be used from Ruby on Rails versions between 2.3.x and 6.0 and it is working with Oracle database versions 10g and higher
 
 INSTALLATION
 ------------
+### Rails 6.0
+
+Oracle enhanced adapter version 6.0 supports Rails 6.0.
+When using Ruby on Rails version 6.0 then in Gemfile include
+
+```ruby
+# Use oracle as the database for Active Record
+gem 'activerecord-oracle_enhanced-adapter', '~> 6.0.0'
+gem 'ruby-oci8' # only for CRuby users
+```
+
 ### Rails 5.2
 
 Oracle enhanced adapter version 5.2 supports Rails 5.2.
@@ -688,12 +676,6 @@ class Post < ActiveRecord::Base
   attribute :is_default, :boolean
 end
 ```
-
-* Respect database instance `cursor_sharing` value exact by default
-
-Oracle enhanced adapter changed `cursor_sharing` parameter value to `force` in Rails 5.1 or lower. However, Oracle enhanced adapter 5.2 supports prepared statements for dictionary queries There is no need to change `cursor_sharing` value to `exact` anymore.
-
-If you want to keep the old behavior in Rails 5.2, set `cursor_sharing: :force` explicitly in the database.yml.
 
 * Remove `OracleEnhancedAdapter.cache_columns` to use Rails `db:schema:cache:dump`
 

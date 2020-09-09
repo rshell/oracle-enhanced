@@ -15,7 +15,7 @@ end
 required_oci8_version = [2, 2, 4]
 oci8_version_ints = OCI8::VERSION.scan(/\d+/).map { |s| s.to_i }
 if (oci8_version_ints <=> required_oci8_version) < 0
-  $stderr.puts <<-EOS.strip_heredoc
+  $stderr.puts <<~EOS
     "ERROR: ruby-oci8 version #{OCI8::VERSION} is too old. Please install ruby-oci8 version #{required_oci8_version.join('.')} or later."
   EOS
 
@@ -129,6 +129,8 @@ module ActiveRecord
               @raw_cursor.bind_param(position, OracleEnhanced::Quoting.encode_raw(value))
             when ActiveModel::Type::Decimal
               @raw_cursor.bind_param(position, BigDecimal(value.to_s))
+            when Type::OracleEnhanced::CharacterString::Data
+              @raw_cursor.bind_param(position, value.to_character_str)
             when NilClass
               @raw_cursor.bind_param(position, nil, String)
             else
@@ -172,8 +174,19 @@ module ActiveRecord
           def fetch(options = {})
             if row = @raw_cursor.fetch
               get_lob_value = options[:get_lob_value]
+              col_index = 0
               row.map do |col|
-                @connection.typecast_result_value(col, get_lob_value)
+                col_value = @connection.typecast_result_value(col, get_lob_value)
+                col_metadata = @raw_cursor.column_metadata.fetch(col_index)
+                if !col_metadata.nil?
+                  key = col_metadata.data_type
+                  case key.to_s.downcase
+                  when "char"
+                    col_value = col.to_s.rstrip
+                  end
+                end
+                col_index = col_index + 1
+                col_value
               end
             end
           end
@@ -205,7 +218,16 @@ module ActiveRecord
             hash = column_hash.dup
 
             cols.each_with_index do |col, i|
-              hash[col] = typecast_result_value(row[i], get_lob_value)
+              col_value = typecast_result_value(row[i], get_lob_value)
+              col_metadata = cursor.column_metadata.fetch(i)
+              if !col_metadata.nil?
+                key = col_metadata.data_type
+                case key.to_s.downcase
+                when "char"
+                  col_value = col_value.to_s.rstrip
+                end
+              end
+              hash[col] = col_value
             end
 
             rows << hash
@@ -221,28 +243,18 @@ module ActiveRecord
         end
 
         def describe(name)
-          # fall back to SELECT based describe if using database link
-          return super if name.to_s.include?("@")
-          quoted_name = OracleEnhanced::Quoting.valid_table_name?(name) ? name : "\"#{name}\""
-          @raw_connection.describe(quoted_name)
-        rescue OCIException => e
-          if e.code == 4043
-            raise OracleEnhanced::ConnectionException, %Q{"DESC #{name}" failed; does it exist?}
-          else
-            # fall back to SELECT which can handle synonyms to database links
-            super
-          end
+          super
         end
 
-      # Return OCIError error code
-      def error_code(exception)
-        case exception
-        when OCIError
-          exception.code
-        else
-          nil
+        # Return OCIError error code
+        def error_code(exception)
+          case exception
+          when OCIError
+            exception.code
+          else
+            nil
+          end
         end
-      end
 
         def typecast_result_value(value, get_lob_value)
           case value
@@ -390,21 +402,12 @@ module ActiveRecord
               end
             end
           end
+          OracleEnhancedAdapter::FIXED_NLS_PARAMETERS.each do |key, value|
+            conn.exec "alter session set #{key} = '#{value}'"
+          end
           conn
         end
       end
-    end
-  end
-end
-
-class OCI8 #:nodoc:
-  def describe(name)
-    info = describe_table(name.to_s)
-    raise %Q{"DESC #{name}" failed} if info.nil?
-    if info.respond_to?(:obj_link) && info.obj_link
-      [info.obj_schema, info.obj_name, "@" + info.obj_link]
-    else
-      [info.obj_schema, info.obj_name]
     end
   end
 end

@@ -1,5 +1,3 @@
-[![Build Status](https://travis-ci.org/rsim/oracle-enhanced.svg?branch=master)](https://travis-ci.org/rsim/oracle-enhanced)
-
 activerecord-oracle_enhanced-adapter
 ====================================
 
@@ -31,10 +29,43 @@ Running a prepared statement  need linked acts_as_bulk_many plugin to do active 
 DESCRIPTION
 -----------
 
-Oracle enhanced ActiveRecord adapter provides Oracle database access from Ruby on Rails applications. Oracle enhanced adapter can be used from Ruby on Rails versions between 2.3.x and 4.0 and it is working with Oracle database versions from 10g to 12c.
+Oracle enhanced ActiveRecord adapter provides Oracle database access from Ruby on Rails applications. Oracle enhanced adapter can be used from Ruby on Rails versions between 2.3.x and 5.1 and it is working with Oracle database versions from 10g to 12c.
 
 INSTALLATION
 ------------
+### Rails 5.2
+
+Oracle enhanced adapter version 5.2 supports Rails 5.2.
+When using Ruby on Rails version 5.2 then in Gemfile include
+
+```ruby
+# Use oracle as the database for Active Record
+gem 'activerecord-oracle_enhanced-adapter', '~> 5.2.0'
+gem 'ruby-oci8' # only for CRuby users
+```
+
+### Rails 5.1
+
+Oracle enhanced adapter version 1.8 just supports Rails 5.1 and does not support Rails 5.0 or lower version of Rails.
+When using Ruby on Rails version 5.1 then in Gemfile include
+
+```ruby
+# Use oracle as the database for Active Record
+gem 'activerecord-oracle_enhanced-adapter', '~> 1.8.0'
+gem 'ruby-oci8' # only for CRuby users
+```
+
+### Rails 5.0
+
+Oracle enhanced adapter version 1.7 just supports Rails 5.0 and does not support Rails 4.2 or lower version of Rails.
+When using Ruby on Rails version 5.0 then in Gemfile include
+
+```ruby
+# Use oracle as the database for Active Record
+gem 'activerecord-oracle_enhanced-adapter', '~> 1.7.0'
+gem 'ruby-oci8' # only for CRuby users
+```
+
 ### Rails 4.2
 
 Oracle enhanced adapter version 1.6 just supports Rails 4.2 and does not support Rails 4.1 or lower version of Rails.
@@ -242,17 +273,14 @@ ENV['TZ'] = 'UTC'
 
 ActiveSupport.on_load(:active_record) do
   ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.class_eval do
-    # id columns and columns which end with _id will always be converted to integers
-    self.emulate_integers_by_column_name = true
-
-    # DATE columns which include "date" in name will be converted to Date, otherwise to Time
-    self.emulate_dates_by_column_name = true
-
     # true and false will be stored as 'Y' and 'N'
     self.emulate_booleans_from_strings = true
 
     # start primary key sequences from 1 (and not 10000) and take just one next value in each session
     self.default_sequence_start_value = "1 NOCACHE INCREMENT BY 1"
+
+    # Use old visitor for Oracle 12c database
+    self.use_old_oracle_visitor = true
 
     # other settings ...
   end
@@ -278,6 +306,44 @@ class Employee < ActiveRecord::Base
   # specify sequence name
   self.sequence_name = "hr.hr_employee_s"
 
+  # set which DATE columns should be converted to Ruby Date using ActiveRecord Attribute API
+  # Starting from Oracle enhanced adapter 1.7 Oracle `DATE` columns are mapped to Ruby `Date` by default.
+  attribute :hired_on, :date
+  attribute :birth_date_on, :date
+
+  # set which DATE columns should be converted to Ruby Time using ActiveRecord Attribute API
+  attribute :last_login_time, :datetime
+
+  # set which VARCHAR2 columns should be converted to true and false using ActiveRecord Attribute API
+  attribute :manager, :boolean
+  attribute :active, :boolean
+
+  # set which columns should be ignored in ActiveRecord
+  ignore_table_columns :attribute1, :attribute2
+end
+```
+
+You can also access remote tables over database link using
+
+```ruby
+self.table_name "hr_employees@db_link"
+```
+
+Examples for Rails 4.x
+
+```ruby
+class Employee < ActiveRecord::Base
+  # specify schema and table name
+  self.table_name = "hr.hr_employees"
+
+  # specify primary key name
+  self.primary_key = "employee_id"
+
+  # specify sequence name
+  self.sequence_name = "hr.hr_employee_s"
+
+  # If you're using Rails 4.2 or earlier you can do this
+
   # set which DATE columns should be converted to Ruby Date
   set_date_columns :hired_on, :birth_date_on
 
@@ -290,12 +356,6 @@ class Employee < ActiveRecord::Base
   # set which columns should be ignored in ActiveRecord
   ignore_table_columns :attribute1, :attribute2
 end
-```
-
-You can also access remote tables over database link using
-
-```ruby
-self.table_name "hr_employees@db_link"
 ```
 
 Examples for Rails 3.2 and lower version of Rails
@@ -449,6 +509,14 @@ Post.contains(:all_text, "aaa within title")
 Post.contains(:all_text, "bbb within comment_author")
 ```
 
+Please note that `index_column` must be a real column in your database and it's value will be overridden every time your `index_column_trigger_on` columns are changed. So, _do not use columns with real data as `index_column`_.
+
+Index column can be created as:
+
+```ruby
+add_column :posts, :all_text, :string, limit: 2, comment: 'Service column for context search index'
+```
+
 ### Oracle virtual columns support
 
 Since version R11G1 Oracle database allows adding computed [Virtual Columns](http://www.oracle-base.com/articles/11g/virtual-columns-11gr1.php) to the table.
@@ -598,6 +666,85 @@ development:
     (CONNECT_DATA=(SERVICE_NAME=xe))
   )"
 ```
+
+### Schema cache
+
+`rails db:schema:cache:dump` generates `db/schema_cache.yml` to avoid queries for Oracle database dictionary, which could help your application response time if it takes time to look up database structure.
+
+if any database structure changed by migrations, execute `rails db:schema:cache:dump` again and restart Rails server to reflect changes.
+
+UPGRADE
+---------------
+### Upgrade Rails 5.0 or older version to Rails 5.2
+
+* `emulate_booleans_from_strings = true` change
+
+`VARCHAR2(1)` sql type is not registered as `Type:Boolean` even if `emulate_booleans_from_strings = true`
+
+Configure each model attribute as follows:
+
+```ruby
+class Post < ActiveRecord::Base
+  attribute :is_default, :boolean
+end
+```
+
+* Respect database instance `cursor_sharing` value exact by default
+
+Oracle enhanced adapter changed `cursor_sharing` parameter value to `force` in Rails 5.1 or lower. However, Oracle enhanced adapter 5.2 supports prepared statements for dictionary queries There is no need to change `cursor_sharing` value to `exact` anymore.
+
+If you want to keep the old behavior in Rails 5.2, set `cursor_sharing: :force` explicitly in the database.yml.
+
+* Remove `OracleEnhancedAdapter.cache_columns` to use Rails `db:schema:cache:dump`
+
+Refer https://github.com/rsim/oracle-enhanced#schema-cache
+
+### Upgrade Rails 5.0 or older version to Rails 5.1
+
+If your application gets `ORA-01000: maximum open cursors exceeded`
+after upgrading to Rails 5.1,
+check these two values and configure `open_cursors` parameter value
+at Oracle database instance is larger than `:statement_limit` value at database.yml.
+
+* `open_cursors` value at Oracle database instance
+
+```sql
+SQL> select name,value from v$parameter where name = 'open_cursors';
+
+NAME
+--------------------------------------------------------------------------------
+VALUE
+--------------------------------------------------------------------------------
+open_cursors
+1200
+
+```
+
+* `:statement_limit` value at database.yml
+
+Since Oracle enhanced adapter 1.8.0 this default value changed from 250 to 1000.
+
+### Upgrade Rails 4.2 or older version to Rails 5
+
+If your Oracle table columns have been created for Rails `:datetime` attributes in Rails 4.2 or earlier,
+they need to migrate to `:datetime` in Rails 5 using one of two following ways:
+
+* Rails migration code example:
+```ruby
+change_column :posts, :created_at, :datetime
+change_column :posts, :updated_at, :datetime
+```
+
+or
+
+* SQL statement example
+```sql
+ALTER TABLE "POSTS" MODIFY "CREATED_AT" TIMESTAMP
+ALTER TABLE "POSTS" MODIFY "UPDATED_AT" TIMESTAMP
+```
+
+In Rails 5 without running this migration or sql statement, 
+these attributes will be handled as Rails `:date` type.
 
 TROUBLESHOOTING
 ---------------

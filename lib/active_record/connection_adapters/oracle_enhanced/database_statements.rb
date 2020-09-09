@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   module ConnectionAdapters
     module OracleEnhanced
@@ -24,40 +26,38 @@ module ActiveRecord
           reload_type_map
         end
 
-        def exec_query(sql, name = 'SQL', binds = [])
-          type_casted_binds = binds.map { |col, val|
-            [col, type_cast(val, col)]
-          }
-          log(sql, name, type_casted_binds) do
+        def exec_query(sql, name = "SQL", binds = [], prepare: false)
+          type_casted_binds = type_casted_binds(binds)
+
+          log(sql, name, binds, type_casted_binds) do
             cursor = nil
             cached = false
-            if without_prepared_statement?(binds)
-              cursor = @connection.prepare(sql)
-            else
-              unless @statements.key? sql
-                @statements[sql] = @connection.prepare(sql)
+            with_retry do
+              if without_prepared_statement?(binds)
+                cursor = @connection.prepare(sql)
+              else
+                unless @statements.key? sql
+                  @statements[sql] = @connection.prepare(sql)
+                end
+
+                cursor = @statements[sql]
+
+                cursor.bind_params(type_casted_binds)
+
+                cached = true
               end
 
-              cursor = @statements[sql]
-
-              type_casted_binds.each_with_index do |bind, i|
-                col, val = bind
-                cursor.bind_param(i + 1, val, col)
-              end
-
-              cached = true
+              cursor.exec
             end
 
-            cursor.exec
-
-            if name == 'EXPLAIN' and sql =~ /^EXPLAIN/
+            if (name == "EXPLAIN") && sql =~ /^EXPLAIN/
               res = true
             else
               columns = cursor.get_col_names.map do |col_name|
-                @connection.oracle_downcase(col_name)
+                oracle_downcase(col_name)
               end
               rows = []
-              fetch_options = {:get_lob_value => (name != 'Writable Large Object')}
+              fetch_options = { get_lob_value: (name != "Writable Large Object") }
               while row = cursor.fetch(fetch_options)
                 rows << row
               end
@@ -69,10 +69,6 @@ module ActiveRecord
           end
         end
 
-        def supports_statement_cache?
-          true
-        end
-
         def supports_explain?
           true
         end
@@ -81,111 +77,96 @@ module ActiveRecord
           sql = "EXPLAIN PLAN FOR #{to_sql(arel, binds)}"
           return if sql =~ /FROM all_/
           if ORACLE_ENHANCED_CONNECTION == :jdbc
-            exec_query(sql, 'EXPLAIN', binds)
+            exec_query(sql, "EXPLAIN", binds)
           else
-            exec_query(sql, 'EXPLAIN')
+            exec_query(sql, "EXPLAIN")
           end
-          select_values("SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY)", 'EXPLAIN').join("\n")
+          select_values("SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY)", "EXPLAIN").join("\n")
         end
-
-        # Returns an array of arrays containing the field values.
-        # Order is the same as that returned by #columns.
-        def select_rows(sql, name = nil, binds = [])
-          exec_query(sql, name, binds).rows
-        end
-
-        # Executes an INSERT statement and returns the new record's ID
-        def insert_sql(sql, name = nil, pk = nil, id_value = nil, sequence_name = nil) #:nodoc:
-          # if primary key value is already prefetched from sequence
-          # or if there is no primary key
-          if id_value || pk.nil?
-            execute(sql, name)
-            return id_value
-          end
-
-          sql_with_returning = sql + @connection.returning_clause(quote_column_name(pk))
-          log(sql, name) do
-            @connection.exec_with_returning(sql_with_returning)
-          end
-        end
-        protected :insert_sql
 
         # New method in ActiveRecord 3.1
         # Will add RETURNING clause in case of trigger generated primary keys
         def sql_for_insert(sql, pk, id_value, sequence_name, binds)
-          unless id_value || pk.nil? || (defined?(CompositePrimaryKeys) && pk.kind_of?(CompositePrimaryKeys::CompositeKeys))
+          unless id_value || pk == false || pk.nil? ||  pk.is_a?(Array)
             sql = "#{sql} RETURNING #{quote_column_name(pk)} INTO :returning_id"
-            returning_id_col = new_column("returning_id", nil, Type::Value.new, "number", true, "dual", true, true)
-            (binds = binds.dup) << [returning_id_col, nil]
+            (binds = binds.dup) << ActiveRecord::Relation::QueryAttribute.new("returning_id", nil, Type::OracleEnhanced::Integer.new)
           end
-          [sql, binds]
+          super
+        end
+
+        def insert(arel, name = nil, pk = nil, id_value = nil, sequence_name = nil, binds = [])
+          pk = nil if id_value
+          super
         end
 
         # New method in ActiveRecord 3.1
-        def exec_insert(sql, name, binds, pk = nil, sequence_name = nil)
-          type_casted_binds = binds.map { |col, val|
-            [col, type_cast(val, col)]
-          }
-          log(sql, name, type_casted_binds) do
+        def exec_insert(sql, name = nil, binds = [], pk = nil, sequence_name = nil)
+          sql, binds = sql_for_insert(sql, pk, nil, sequence_name, binds)
+          type_casted_binds = type_casted_binds(binds)
+
+          log(sql, name, binds, type_casted_binds) do
+            cached = false
+            cursor = nil
             returning_id_col = returning_id_index = nil
-            if without_prepared_statement?(binds)
-              cursor = @connection.prepare(sql)
-            else
-              unless @statements.key?(sql)
-                @statements[sql] = @connection.prepare(sql)
-              end
-
-              cursor = @statements[sql]
-
-              type_casted_binds.each_with_index do |bind, i|
-                col, val = bind
-                if col.returning_id?
-                  returning_id_col = [col]
-                  returning_id_index = i + 1
-                  cursor.bind_returning_param(returning_id_index, Integer)
-                else
-                  cursor.bind_param(i + 1, val, col)
+            with_retry do
+              if without_prepared_statement?(binds)
+                cursor = @connection.prepare(sql)
+              else
+                unless @statements.key?(sql)
+                  @statements[sql] = @connection.prepare(sql)
                 end
-              end
-            end
 
-            cursor.exec_update
+                cursor = @statements[sql]
+
+                cursor.bind_params(type_casted_binds)
+
+                if sql =~ /:returning_id/
+                  # it currently expects that returning_id comes last part of binds
+                  returning_id_index = binds.size
+                  cursor.bind_returning_param(returning_id_index, Integer)
+                end
+
+                cached = true
+              end
+
+              cursor.exec_update
+            end
 
             rows = []
             if returning_id_index
-              returning_id = cursor.get_returning_param(returning_id_index, Integer)
+              returning_id = cursor.get_returning_param(returning_id_index, Integer).to_i
               rows << [returning_id]
             end
+            cursor.close unless cached
             ActiveRecord::Result.new(returning_id_col || [], rows)
           end
         end
 
         # New method in ActiveRecord 3.1
-        def exec_update(sql, name, binds)
-          type_casted_binds = binds.map { |col, val|
-            [col, type_cast(val, col)]
-          }
-          log(sql, name, type_casted_binds) do
-            cached = false
-            if without_prepared_statement?(binds)
-              cursor = @connection.prepare(sql)
-            else
-              cursor = if @statements.key?(sql)
-                @statements[sql]
+        def exec_update(sql, name = nil, binds = [])
+          type_casted_binds = type_casted_binds(binds)
+
+          log(sql, name, binds, type_casted_binds) do
+            with_retry do
+              cached = false
+              if without_prepared_statement?(binds)
+                cursor = @connection.prepare(sql)
               else
-                @statements[sql] = @connection.prepare(sql)
+                if @statements.key?(sql)
+                  cursor = @statements[sql]
+                else
+                  cursor = @statements[sql] = @connection.prepare(sql)
+                end
+
+                cursor.bind_params(type_casted_binds)
+
+                cached = true
               end
 
-              type_casted_binds.each_with_index do |bind, i|
-                col, val = bind
-                cursor.bind_param(i + 1, val, col)
-              end
-              cached = true
+              res = cursor.exec_update
+              cursor.close unless cached
+              res
             end
-
-            res = cursor.exec_update
-            cursor.close unless cached
-            res
           end
         end
 
@@ -237,7 +218,7 @@ module ActiveRecord
         # Returns default sequence name for table.
         # Will take all or first 26 characters of table name and append _seq suffix
         def default_sequence_name(table_name, primary_key = nil)
-          table_name.to_s.gsub((/(^|\.)([\w$-]{1,#{sequence_name_length-4}})([\w$-]*)$/), '\1\2_seq')
+          table_name.to_s.gsub((/(^|\.)([\w$-]{1,#{sequence_name_length - 4}})([\w$-]*)$/), '\1\2_seq')
         end
 
         # Inserts the given fixture into the table. Overridden to properly handle lobs.
@@ -256,12 +237,70 @@ module ActiveRecord
           end
         end
 
-        private
-
-        def select(sql, name = nil, binds = [])
-          exec_query(sql, name, binds)
+        # fallback to non bulk fixture insert
+        def insert_fixtures(fixtures, table_name)
+          ActiveSupport::Deprecation.warn(<<-MSG.squish)
+            `insert_fixtures` is deprecated and will be removed in the next version of Rails.
+            Consider using `insert_fixtures_set` for performance improvement.
+          MSG
+          fixtures.each do |fixture|
+            insert_fixture(fixture, table_name)
+          end
         end
 
+        def insert_fixtures_set(fixture_set, tables_to_delete = [])
+          disable_referential_integrity do
+            transaction(requires_new: true) do
+              tables_to_delete.each { |table| delete "DELETE FROM #{quote_table_name(table)}", "Fixture Delete" }
+
+              fixture_set.each do |table_name, rows|
+                rows.each { |row| insert_fixture(row, table_name) }
+              end
+            end
+          end
+        end
+
+        # Oracle Database does not support this feature
+        # Refer https://community.oracle.com/ideas/13845 and consider to vote
+        # if you need this feature.
+        def empty_insert_statement_value
+          raise NotImplementedError
+        end
+
+        # Writes LOB values from attributes for specified columns
+        def write_lobs(table_name, klass, attributes, columns) #:nodoc:
+          id = quote(attributes[klass.primary_key])
+          columns.each do |col|
+            value = attributes[col.name]
+            # changed sequence of next two lines - should check if value is nil before converting to yaml
+            next if value.blank?
+            if klass.attribute_types[col.name].is_a? Type::Serialized
+              value = klass.attribute_types[col.name].serialize(value)
+            end
+            uncached do
+              unless lob_record = select_one(sql = <<-SQL.strip.gsub(/\s+/, " "), "Writable Large Object")
+                SELECT #{quote_column_name(col.name)} FROM #{quote_table_name(table_name)}
+                WHERE #{quote_column_name(klass.primary_key)} = #{id} FOR UPDATE
+              SQL
+                raise ActiveRecord::RecordNotFound, "statement #{sql} returned no rows"
+              end
+              lob = lob_record[col.name]
+              @connection.write_lob(lob, value.to_s, col.type == :binary)
+            end
+          end
+        end
+
+        private
+          def with_retry
+            @connection.with_retry do
+              begin
+                yield
+              rescue
+                @statements.clear
+                raise
+              end
+            end
+          end
       end
     end
   end

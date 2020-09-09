@@ -1,342 +1,353 @@
+# frozen_string_literal: true
+
 module ActiveRecord #:nodoc:
   module ConnectionAdapters #:nodoc:
-    module OracleEnhancedStructureDump #:nodoc:
+    module OracleEnhanced #:nodoc:
+      module StructureDump #:nodoc:
+        # Statements separator used in structure dump to allow loading of structure dump also with SQL*Plus
+        STATEMENT_TOKEN = "\n\n/\n\n"
 
-      # Statements separator used in structure dump to allow loading of structure dump also with SQL*Plus
-      STATEMENT_TOKEN = "\n\n/\n\n"
+        def structure_dump #:nodoc:
+          sequences = select(<<-SQL.strip.gsub(/\s+/, " "), "sequences to dump at structure dump")
+            SELECT sequence_name, min_value, max_value, increment_by, order_flag, cycle_flag
+            FROM all_sequences
+            where sequence_owner = SYS_CONTEXT('userenv', 'session_user') ORDER BY 1
+          SQL
 
-      def structure_dump #:nodoc:
-        structure = select_values("SELECT sequence_name FROM user_sequences ORDER BY 1").map do |seq|
-          "CREATE SEQUENCE \"#{seq}\""
-        end
-        select_values("SELECT table_name FROM all_tables t
-                    WHERE owner = SYS_CONTEXT('userenv', 'current_schema') AND secondary = 'N'
-                      AND NOT EXISTS (SELECT mv.mview_name FROM all_mviews mv WHERE mv.owner = t.owner AND mv.mview_name = t.table_name)
-                      AND NOT EXISTS (SELECT mvl.log_table FROM all_mview_logs mvl WHERE mvl.log_owner = t.owner AND mvl.log_table = t.table_name)
-                    ORDER BY 1").each do |table_name|
-          virtual_columns = virtual_columns_for(table_name)
-          ddl = "CREATE#{ ' GLOBAL TEMPORARY' if temporary_table?(table_name)} TABLE \"#{table_name}\" (\n"
-          cols = select_all(%Q{
-            SELECT column_name, data_type, data_length, char_used, char_length, data_precision, data_scale, data_default, nullable
-            FROM user_tab_columns
-            WHERE table_name = '#{table_name}'
-            ORDER BY column_id
-          }).map do |row|
-            if(v = virtual_columns.find {|col| col['column_name'] == row['column_name']})
-              structure_dump_virtual_column(row, v['data_default'])
-            else
-              structure_dump_column(row)
-            end
+          structure = sequences.map do |result|
+            "CREATE SEQUENCE #{quote_table_name(result["sequence_name"])} MINVALUE #{result["min_value"]} MAXVALUE #{result["max_value"]} INCREMENT BY #{result["increment_by"]} #{result["order_flag"] == 'Y' ? "ORDER" : "NOORDER"} #{result["cycle_flag"] == 'Y' ? "CYCLE" : "NOCYCLE"}"
           end
-          ddl << cols.join(",\n ")
-          ddl << structure_dump_primary_key(table_name)
-          ddl << "\n)"
-          structure << ddl
-          structure << structure_dump_indexes(table_name)
-          structure << structure_dump_unique_keys(table_name)
-          structure << structure_dump_table_comments(table_name)
-          structure << structure_dump_column_comments(table_name)
+          tables = select_values(<<-SQL.strip.gsub(/\s+/, " "), "tables at structure dump")
+            SELECT table_name FROM all_tables t
+            WHERE owner = SYS_CONTEXT('userenv', 'current_schema') AND secondary = 'N'
+            AND NOT EXISTS (SELECT mv.mview_name FROM all_mviews mv
+                            WHERE mv.owner = t.owner AND mv.mview_name = t.table_name)
+            AND NOT EXISTS (SELECT mvl.log_table FROM all_mview_logs mvl
+                            WHERE mvl.log_owner = t.owner AND mvl.log_table = t.table_name)
+            ORDER BY 1
+          SQL
+          tables.each do |table_name|
+            virtual_columns = virtual_columns_for(table_name) if supports_virtual_columns?
+            ddl = "CREATE#{ ' GLOBAL TEMPORARY' if temporary_table?(table_name)} TABLE \"#{table_name}\" (\n".dup
+            columns = select_all(<<-SQL.strip.gsub(/\s+/, " "), "columns at structure dump")
+              SELECT column_name, data_type, data_length, char_used, char_length,
+              data_precision, data_scale, data_default, nullable
+              FROM all_tab_columns
+              WHERE table_name = '#{table_name}'
+              AND owner = SYS_CONTEXT('userenv', 'session_user')
+              ORDER BY column_id
+            SQL
+            cols = columns.map do |row|
+              if (v = virtual_columns.find { |col| col["column_name"] == row["column_name"] })
+                structure_dump_virtual_column(row, v["data_default"])
+              else
+                structure_dump_column(row)
+              end
+            end
+            ddl << cols.map { |col| " #{col}" }.join(",\n")
+            ddl << structure_dump_primary_key(table_name)
+            ddl << "\n)"
+            structure << ddl
+            structure << structure_dump_indexes(table_name)
+            structure << structure_dump_unique_keys(table_name)
+            structure << structure_dump_table_comments(table_name)
+            structure << structure_dump_column_comments(table_name)
+          end
+
+          join_with_statement_token(structure) << structure_dump_fk_constraints
         end
 
-        join_with_statement_token(structure) << structure_dump_fk_constraints
-      end
-
-      def structure_dump_column(column) #:nodoc:
-        col = "\"#{column['column_name']}\" #{column['data_type']}"
-        if column['data_type'] =='NUMBER' and !column['data_precision'].nil?
-          col << "(#{column['data_precision'].to_i}"
-          col << ",#{column['data_scale'].to_i}" if !column['data_scale'].nil?
-          col << ')'
-        elsif column['data_type'].include?('CHAR') || column['data_type'] == 'RAW'
-          length = column['char_used'] == 'C' ? column['char_length'].to_i : column['data_length'].to_i
-          col <<  "(#{length})"
+        def structure_dump_column(column) #:nodoc:
+          col = "\"#{column['column_name']}\" #{column['data_type']}".dup
+          if (column["data_type"] == "NUMBER") && !column["data_precision"].nil?
+            col << "(#{column['data_precision'].to_i}"
+            col << ",#{column['data_scale'].to_i}" if !column["data_scale"].nil?
+            col << ")"
+          elsif column["data_type"].include?("CHAR") || column["data_type"] == "RAW"
+            length = column["char_used"] == "C" ? column["char_length"].to_i : column["data_length"].to_i
+            col << "(#{length})"
+          end
+          col << " DEFAULT #{column['data_default']}" if !column["data_default"].nil?
+          col << " NOT NULL" if column["nullable"] == "N"
+          col
         end
-        col << " DEFAULT #{column['data_default']}" if !column['data_default'].nil?
-        col << ' NOT NULL' if column['nullable'] == 'N'
-        col
-      end
 
-      def structure_dump_virtual_column(column, data_default) #:nodoc:
-        data_default = data_default.gsub(/"/, '')
-        col = "\"#{column['column_name']}\" #{column['data_type']}"
-        if column['data_type'] =='NUMBER' and !column['data_precision'].nil?
-          col << "(#{column['data_precision'].to_i}"
-          col << ",#{column['data_scale'].to_i}" if !column['data_scale'].nil?
-          col << ')'
-        elsif column['data_type'].include?('CHAR') || column['data_type'] == 'RAW'
-          length = column['char_used'] == 'C' ? column['char_length'].to_i : column['data_length'].to_i
-          col <<  "(#{length})"
+        def structure_dump_virtual_column(column, data_default) #:nodoc:
+          data_default = data_default.gsub(/"/, "")
+          col = "\"#{column['column_name']}\" #{column['data_type']}".dup
+          if (column["data_type"] == "NUMBER") && !column["data_precision"].nil?
+            col << "(#{column['data_precision'].to_i}"
+            col << ",#{column['data_scale'].to_i}" if !column["data_scale"].nil?
+            col << ")"
+          elsif column["data_type"].include?("CHAR") || column["data_type"] == "RAW"
+            length = column["char_used"] == "C" ? column["char_length"].to_i : column["data_length"].to_i
+            col << "(#{length})"
+          end
+          col << " GENERATED ALWAYS AS (#{data_default}) VIRTUAL"
         end
-        col << " GENERATED ALWAYS AS (#{data_default}) VIRTUAL"
-      end
 
-      def structure_dump_primary_key(table) #:nodoc:
-        opts = {:name => '', :cols => []}
-        pks = select_all(<<-SQL, "Primary Keys") 
+        def structure_dump_primary_key(table) #:nodoc:
+          opts = { name: "", cols: [] }
+          pks = select_all(<<-SQL.strip.gsub(/\s+/, " "), "Primary Keys")
           SELECT a.constraint_name, a.column_name, a.position
-            FROM user_cons_columns a
-            JOIN user_constraints c
+            FROM all_cons_columns a
+            JOIN all_constraints c
               ON a.constraint_name = c.constraint_name
            WHERE c.table_name = '#{table.upcase}'
              AND c.constraint_type = 'P'
+             AND a.owner = c.owner
              AND c.owner = SYS_CONTEXT('userenv', 'current_schema')
         SQL
-        pks.each do |row|
-          opts[:name] = row['constraint_name']
-          opts[:cols][row['position']-1] = row['column_name']
+          pks.each do |row|
+            opts[:name] = row["constraint_name"]
+            opts[:cols][row["position"] - 1] = row["column_name"]
+          end
+          opts[:cols].length > 0 ? ",\n CONSTRAINT #{opts[:name]} PRIMARY KEY (#{opts[:cols].join(',')})" : ""
         end
-        opts[:cols].length > 0 ? ",\n CONSTRAINT #{opts[:name]} PRIMARY KEY (#{opts[:cols].join(',')})" : ''
-      end
 
-      def structure_dump_unique_keys(table) #:nodoc:
-        keys = {}
-        uks = select_all(<<-SQL, "Primary Keys") 
+        def structure_dump_unique_keys(table) #:nodoc:
+          keys = {}
+          uks = select_all(<<-SQL.strip.gsub(/\s+/, " "), "Primary Keys")
           SELECT a.constraint_name, a.column_name, a.position
-            FROM user_cons_columns a
-            JOIN user_constraints c
+            FROM all_cons_columns a
+            JOIN all_constraints c
               ON a.constraint_name = c.constraint_name
            WHERE c.table_name = '#{table.upcase}'
              AND c.constraint_type = 'U'
+             AND a.owner = c.owner
              AND c.owner = SYS_CONTEXT('userenv', 'current_schema')
         SQL
-        uks.each do |uk|
-          keys[uk['constraint_name']] ||= []
-          keys[uk['constraint_name']][uk['position']-1] = uk['column_name']
-        end
-        keys.map do |k,v|
-          "ALTER TABLE #{table.upcase} ADD CONSTRAINT #{k} UNIQUE (#{v.join(',')})"
-        end
-      end
-
-      def structure_dump_indexes(table_name) #:nodoc:
-        indexes(table_name).map do |options|
-          column_names = options[:columns]
-          options = {:name => options[:name], :unique => options[:unique]}
-          index_name   = index_name(table_name, :column => column_names)
-          if Hash === options # legacy support, since this param was a string
-            index_type = options[:unique] ? "UNIQUE" : ""
-            index_name = options[:name] || index_name
-          else
-            index_type = options
+          uks.each do |uk|
+            keys[uk["constraint_name"]] ||= []
+            keys[uk["constraint_name"]][uk["position"] - 1] = uk["column_name"]
           end
-          quoted_column_names = column_names.map { |e| quote_column_name_or_expression(e) }.join(", ")
-          "CREATE #{index_type} INDEX #{quote_column_name(index_name)} ON #{quote_table_name(table_name)} (#{quoted_column_names})"
+          keys.map do |k, v|
+            "ALTER TABLE #{table.upcase} ADD CONSTRAINT #{k} UNIQUE (#{v.join(',')})"
+          end
         end
-      end
 
-      def structure_dump_fk_constraints #:nodoc:
-        fks = select_all("SELECT table_name FROM all_tables WHERE owner = SYS_CONTEXT('userenv', 'current_schema') ORDER BY 1").map do |table|
-          if respond_to?(:foreign_keys) && (foreign_keys = foreign_keys(table["table_name"])).any?
-            foreign_keys.map do |fk|
-              sql = "ALTER TABLE #{quote_table_name(fk.from_table)} ADD CONSTRAINT #{quote_column_name(fk.options[:name])} "
-              sql << "#{foreign_key_definition(fk.to_table, fk.options)}"
+        def structure_dump_indexes(table_name) #:nodoc:
+          indexes(table_name).map do |options|
+            column_names = options.columns
+            options = { name: options.name, unique: options.unique }
+            index_name = index_name(table_name, column: column_names)
+            if Hash === options # legacy support, since this param was a string
+              index_type = options[:unique] ? "UNIQUE" : ""
+              index_name = options[:name] || index_name
+            else
+              index_type = options
+            end
+            quoted_column_names = column_names.map { |e| quote_column_name_or_expression(e) }.join(", ")
+            "CREATE #{index_type} INDEX #{quote_column_name(index_name)} ON #{quote_table_name(table_name)} (#{quoted_column_names})"
+          end
+        end
+
+        def structure_dump_fk_constraints #:nodoc:
+          foreign_keys = select_all(<<-SQL.strip.gsub(/\s+/, " "), "foreign keys at structure dump")
+            SELECT table_name FROM all_tables
+            WHERE owner = SYS_CONTEXT('userenv', 'current_schema') ORDER BY 1
+          SQL
+          fks = foreign_keys.map do |table|
+            if respond_to?(:foreign_keys) && (foreign_keys = foreign_keys(table["table_name"])).any?
+              foreign_keys.map do |fk|
+                sql = "ALTER TABLE #{quote_table_name(fk.from_table)} ADD CONSTRAINT #{quote_column_name(fk.options[:name])} ".dup
+                sql << "#{foreign_key_definition(fk.to_table, fk.options)}"
+              end
+            end
+          end.flatten.compact
+          join_with_statement_token(fks)
+        end
+
+        def structure_dump_table_comments(table_name)
+          comments = []
+          comment = table_comment(table_name)
+
+          unless comment.nil?
+            comments << "COMMENT ON TABLE #{quote_table_name(table_name)} IS '#{quote_string(comment)}'"
+          end
+
+          join_with_statement_token(comments)
+        end
+
+        def structure_dump_column_comments(table_name)
+          comments = []
+          columns = select_values(<<-SQL.strip.gsub(/\s+/, " "), "column comments at structure dump")
+            SELECT column_name FROM user_tab_columns
+            WHERE table_name = '#{table_name}' ORDER BY column_id
+          SQL
+
+          columns.each do |column|
+            comment = column_comment(table_name, column)
+            unless comment.nil?
+              comments << "COMMENT ON COLUMN #{quote_table_name(table_name)}.#{quote_column_name(column)} IS '#{quote_string(comment)}'"
             end
           end
-        end.flatten.compact
-        join_with_statement_token(fks)
-      end
 
-      def structure_dump_table_comments(table_name)
-        comments = []
-        comment = table_comment(table_name)
-
-        unless comment.nil?
-          comments << "COMMENT ON TABLE #{quote_table_name(table_name)} IS '#{quote_string(comment)}'"
+          join_with_statement_token(comments)
         end
 
-        join_with_statement_token(comments)
-      end
-
-      def structure_dump_column_comments(table_name)
-        comments = []
-        columns = select_values("SELECT column_name FROM user_tab_columns WHERE table_name = '#{table_name}' ORDER BY column_id")
-
-        columns.each do |column|
-          comment = column_comment(table_name, column)
-          unless comment.nil?
-            comments << "COMMENT ON COLUMN #{quote_table_name(table_name)}.#{quote_column_name(column)} IS '#{quote_string(comment)}'"
-          end
-        end
-
-        join_with_statement_token(comments)
-      end
-
-      def foreign_key_definition(to_table, options = {}) #:nodoc:
-        columns = Array(options[:column] || options[:columns])
-
-        if columns.size > 1
-          # composite foreign key
-          columns_sql = columns.map {|c| quote_column_name(c)}.join(',')
-          references = options[:references] || columns
-          references_sql = references.map {|c| quote_column_name(c)}.join(',')
-        else
-          columns_sql = quote_column_name(columns.first || "#{to_table.to_s.singularize}_id")
+        def foreign_key_definition(to_table, options = {}) #:nodoc:
+          column_sql = quote_column_name(options[:column] || "#{to_table.to_s.singularize}_id")
           references = options[:references] ? options[:references].first : nil
           references_sql = quote_column_name(options[:primary_key] || references || "id")
-        end
 
-        table_name = to_table
+          sql = "FOREIGN KEY (#{column_sql}) REFERENCES #{quote_table_name(to_table)}(#{references_sql})"
 
-        sql = "FOREIGN KEY (#{columns_sql}) REFERENCES #{quote_table_name(table_name)}(#{references_sql})"
-
-        case options[:dependent]
-        when :nullify
-          sql << " ON DELETE SET NULL"
-        when :delete
-          sql << " ON DELETE CASCADE"
-        end
-        sql
-      end
-
-
-      # Extract all stored procedures, packages, synonyms and views.
-      def structure_dump_db_stored_code #:nodoc:
-        structure = []
-        select_all("SELECT DISTINCT name, type
-                     FROM all_source
-                    WHERE type IN ('PROCEDURE', 'PACKAGE', 'PACKAGE BODY', 'FUNCTION', 'TRIGGER', 'TYPE')
-                      AND name NOT LIKE 'BIN$%'
-                      AND owner = SYS_CONTEXT('userenv', 'current_schema') ORDER BY type").each do |source|
-          ddl = "CREATE OR REPLACE   \n"
-          select_all(%Q{
-                  SELECT text
-                    FROM all_source
-                   WHERE name = '#{source['name']}'
-                     AND type = '#{source['type']}'
-                     AND owner = SYS_CONTEXT('userenv', 'current_schema')
-                   ORDER BY line
-                }).each do |row|
-            ddl << row['text']
+          case options[:dependent]
+          when :nullify
+            sql << " ON DELETE SET NULL"
+          when :delete
+            sql << " ON DELETE CASCADE"
           end
-          ddl << ";" unless ddl.strip[-1,1] == ';'
-          structure << ddl
+          sql
         end
 
-        # export views 
-        select_all("SELECT view_name, text FROM user_views ORDER BY view_name ASC").each do |view|
-          structure << "CREATE OR REPLACE FORCE VIEW #{view['view_name']} AS\n #{view['text']}"
+        # Extract all stored procedures, packages, synonyms and views.
+        def structure_dump_db_stored_code #:nodoc:
+          structure = []
+          all_source = select_all(<<-SQL.strip.gsub(/\s+/, " "), "stored program at structure dump")
+            SELECT DISTINCT name, type
+            FROM all_source
+            WHERE type IN ('PROCEDURE', 'PACKAGE', 'PACKAGE BODY', 'FUNCTION', 'TRIGGER', 'TYPE')
+            AND name NOT LIKE 'BIN$%'
+            AND owner = SYS_CONTEXT('userenv', 'current_schema') ORDER BY type
+          SQL
+          all_source.each do |source|
+            ddl = "CREATE OR REPLACE   \n".dup
+            texts = select_all(<<-SQL.strip.gsub(/\s+/, " "), "all source at structure dump")
+              SELECT text
+              FROM all_source
+              WHERE name = '#{source['name']}'
+              AND type = '#{source['type']}'
+              AND owner = SYS_CONTEXT('userenv', 'current_schema')
+              ORDER BY line
+            SQL
+            texts.each do |row|
+              ddl << row["text"]
+            end
+            ddl << ";" unless ddl.strip[-1, 1] == ";"
+            structure << ddl
+          end
+
+          # export views
+          views = select_all(<<-SQL.strip.gsub(/\s+/, " "), "views at structure dump")
+            SELECT view_name, text FROM all_views
+            WHERE owner = SYS_CONTEXT('userenv', 'session_user') ORDER BY view_name ASC
+          SQL
+          views.each do |view|
+            structure << "CREATE OR REPLACE FORCE VIEW #{view['view_name']} AS\n #{view['text']}"
+          end
+
+          # export synonyms
+          synonyms = select_all(<<-SQL.strip.gsub(/\s+/, " "), "synonyms at structure dump")
+            SELECT owner, synonym_name, table_name, table_owner
+            FROM all_synonyms
+            WHERE owner = SYS_CONTEXT('userenv', 'current_schema')
+          SQL
+          synonyms.each do |synonym|
+            structure << "CREATE OR REPLACE #{synonym['owner'] == 'PUBLIC' ? 'PUBLIC' : '' } SYNONYM #{synonym['synonym_name']}
+  			FOR #{synonym['table_owner']}.#{synonym['table_name']}"
+          end
+
+          join_with_statement_token(structure)
         end
 
-        # export synonyms
-        select_all("SELECT owner, synonym_name, table_name, table_owner
-                      FROM all_synonyms
-                     WHERE owner = SYS_CONTEXT('userenv', 'current_schema') ").each do |synonym|
-          structure << "CREATE OR REPLACE #{synonym['owner'] == 'PUBLIC' ? 'PUBLIC' : '' } SYNONYM #{synonym['synonym_name']}
-			FOR #{synonym['table_owner']}.#{synonym['table_name']}"
+        def structure_drop #:nodoc:
+          sequences = select_values(<<-SQL.strip.gsub(/\s+/, " "), "sequences to drop at structure dump")
+            SELECT sequence_name FROM all_sequences where sequence_owner = SYS_CONTEXT('userenv', 'session_user') ORDER BY 1
+          SQL
+          statements = sequences.map do |seq|
+            "DROP SEQUENCE \"#{seq}\""
+          end
+          tables = select_values(<<-SQL.strip.gsub(/\s+/, " "), "tables to drop at structure dump")
+            SELECT table_name from all_tables t
+            WHERE owner = SYS_CONTEXT('userenv', 'current_schema') AND secondary = 'N'
+            AND NOT EXISTS (SELECT mv.mview_name FROM all_mviews mv
+                            WHERE mv.owner = t.owner AND mv.mview_name = t.table_name)
+            AND NOT EXISTS (SELECT mvl.log_table FROM all_mview_logs mvl
+                            WHERE mvl.log_owner = t.owner AND mvl.log_table = t.table_name)
+            ORDER BY 1
+          SQL
+          tables.each do |table|
+            statements << "DROP TABLE \"#{table}\" CASCADE CONSTRAINTS"
+          end
+          join_with_statement_token(statements)
         end
 
-        join_with_statement_token(structure)
-      end
-
-      def structure_drop #:nodoc:
-        statements = select_values("SELECT sequence_name FROM user_sequences ORDER BY 1").map do |seq|
-          "DROP SEQUENCE \"#{seq}\""
+        def temp_table_drop #:nodoc:
+          temporary_tables = select_values(<<-SQL.strip.gsub(/\s+/, " "), "temporary tables to drop at structure dump")
+            SELECT table_name FROM all_tables
+            WHERE owner = SYS_CONTEXT('userenv', 'current_schema')
+            AND secondary = 'N' AND temporary = 'Y' ORDER BY 1
+          SQL
+          statements = temporary_tables.map do |table|
+            "DROP TABLE \"#{table}\" CASCADE CONSTRAINTS"
+          end
+          join_with_statement_token(statements)
         end
-        select_values("SELECT table_name from all_tables t
-                    WHERE owner = SYS_CONTEXT('userenv', 'current_schema') AND secondary = 'N'
-                      AND NOT EXISTS (SELECT mv.mview_name FROM all_mviews mv WHERE mv.owner = t.owner AND mv.mview_name = t.table_name)
-                      AND NOT EXISTS (SELECT mvl.log_table FROM all_mview_logs mvl WHERE mvl.log_owner = t.owner AND mvl.log_table = t.table_name)
-                    ORDER BY 1").each do |table|
-          statements << "DROP TABLE \"#{table}\" CASCADE CONSTRAINTS"
+
+        def full_drop(preserve_tables = false) #:nodoc:
+          s = preserve_tables ? [] : [structure_drop]
+          s << temp_table_drop if preserve_tables
+          s << drop_sql_for_feature("view")
+          s << drop_sql_for_feature("materialized view")
+          s << drop_sql_for_feature("synonym")
+          s << drop_sql_for_feature("type")
+          s << drop_sql_for_object("package")
+          s << drop_sql_for_object("function")
+          s << drop_sql_for_object("procedure")
+          s.join
         end
-        join_with_statement_token(statements)
-      end
 
-      def temp_table_drop #:nodoc:
-        join_with_statement_token(select_values(
-                  "SELECT table_name FROM all_tables
-                    WHERE owner = SYS_CONTEXT('userenv', 'current_schema') AND secondary = 'N' AND temporary = 'Y' ORDER BY 1").map do |table|
-          "DROP TABLE \"#{table}\" CASCADE CONSTRAINTS"
-        end)
-      end
-
-      def full_drop(preserve_tables=false) #:nodoc:
-        s = preserve_tables ? [] : [structure_drop]
-        s << temp_table_drop if preserve_tables
-        s << drop_sql_for_feature("view")
-        s << drop_sql_for_feature("materialized view")
-        s << drop_sql_for_feature("synonym")
-        s << drop_sql_for_feature("type")
-        s << drop_sql_for_object("package")
-        s << drop_sql_for_object("function")
-        s << drop_sql_for_object("procedure")
-        s.join
-      end
-
-      def add_column_options!(sql, options) #:nodoc:
-        type = options[:type] || ((column = options[:column]) && column.type)
-        type = type && type.to_sym
-        # handle case of defaults for CLOB columns, which would otherwise get "quoted" incorrectly
-        if options_include_default?(options)
-          if type == :text
-            sql << " DEFAULT #{quote(options[:default])}"
-          else
-            # from abstract adapter
-            sql << " DEFAULT #{quote(options[:default], options[:column])}"
+        def execute_structure_dump(string)
+          string.split(STATEMENT_TOKEN).each do |ddl|
+            execute(ddl) unless ddl.blank?
           end
         end
-        # must explicitly add NULL or NOT NULL to allow change_column to work on migrations
-        if options[:null] == false
-          sql << " NOT NULL"
-        elsif options[:null] == true
-          sql << " NULL" unless type == :primary_key
-        end
-        # add AS expression for virtual columns
-        if options[:as].present?
-          sql << " AS (#{options[:as]})"
-        end
-      end
-
-      def execute_structure_dump(string)
-        string.split(STATEMENT_TOKEN).each do |ddl|
-          execute(ddl) unless ddl.blank?
-        end
-      end
 
       private
 
-      # virtual columns are an 11g feature.  This returns [] if feature is not 
-      # present or none are found.
-      # return [{'column_name' => 'FOOS', 'data_default' => '...'}, ...]
-      def virtual_columns_for(table)
-        begin
-          select_all <<-SQL
+        # Called only if `supports_virtual_columns?` returns true
+        # return [{'column_name' => 'FOOS', 'data_default' => '...'}, ...]
+        def virtual_columns_for(table)
+          select_all(<<-SQL.strip.gsub(/\s+/, " "), "virtual columns for")
             SELECT column_name, data_default
-              FROM user_tab_cols
-             WHERE virtual_column = 'YES'
-               AND table_name = '#{table.upcase}'
+            FROM all_tab_cols
+            WHERE virtual_column = 'YES'
+            AND owner = SYS_CONTEXT('userenv', 'session_user')
+            AND table_name = '#{table.upcase}'
           SQL
-        # feature not supported previous to 11g
-        rescue ActiveRecord::StatementInvalid => _e
-          []
+        end
+
+        def drop_sql_for_feature(type)
+          short_type = type == "materialized view" ? "mview" : type
+          features = select_values(<<-SQL.strip.gsub(/\s+/, " "), "features to drop")
+            SELECT #{short_type}_name FROM all_#{short_type.tableize}
+            where owner = SYS_CONTEXT('userenv', 'session_user')
+          SQL
+          statements = features.map do |name|
+            "DROP #{type.upcase} \"#{name}\""
+          end
+          join_with_statement_token(statements)
+        end
+
+        def drop_sql_for_object(type)
+          objects = select_values(<<-SQL.strip.gsub(/\s+/, " "), "objects to drop")
+            SELECT object_name FROM all_objects
+            WHERE object_type = '#{type.upcase}' and owner = SYS_CONTEXT('userenv', 'session_user')
+          SQL
+          statements = objects.map do |name|
+            "DROP #{type.upcase} \"#{name}\""
+          end
+          join_with_statement_token(statements)
+        end
+
+        def join_with_statement_token(array)
+          string = array.join(STATEMENT_TOKEN)
+          string << STATEMENT_TOKEN unless string.blank?
+          string
         end
       end
-
-      def drop_sql_for_feature(type)
-        short_type = type == 'materialized view' ? 'mview' : type
-        join_with_statement_token(
-        select_values("SELECT #{short_type}_name FROM user_#{short_type.tableize}").map do |name|
-          "DROP #{type.upcase} \"#{name}\""
-        end)
-      end
-
-      def drop_sql_for_object(type)
-        join_with_statement_token(
-        select_values("SELECT object_name FROM user_objects WHERE object_type = '#{type.upcase}'").map do |name|
-          "DROP #{type.upcase} \"#{name}\""
-        end)
-      end
-
-      def join_with_statement_token(array)
-        string = array.join(STATEMENT_TOKEN)
-        string << STATEMENT_TOKEN unless string.blank?
-        string
-      end
-
     end
   end
-end
-
-ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.class_eval do
-  include ActiveRecord::ConnectionAdapters::OracleEnhancedStructureDump
 end

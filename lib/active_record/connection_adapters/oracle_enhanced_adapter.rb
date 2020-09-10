@@ -374,11 +374,11 @@ module ActiveRecord
         integer: { name: "NUMBER", limit: 38 },
         float: { name: "BINARY_FLOAT" },
         decimal: { name: "DECIMAL" },
-        datetime: { name: "TIMESTAMP" },
+        datetime: { name: "DATE" },
         timestamp: { name: "TIMESTAMP" },
         timestamptz: { name: "TIMESTAMP WITH TIME ZONE" },
         timestampltz: { name: "TIMESTAMP WITH LOCAL TIME ZONE" },
-        time: { name: "TIMESTAMP" },
+        time: { name: "DATE" },
         date: { name: "DATE" },
         binary: { name: "BLOB" },
         boolean: { name: "NUMBER", limit: 1 },
@@ -471,7 +471,7 @@ module ActiveRecord
         do_not_prefetch = @do_not_prefetch_primary_key[table_name]
         if do_not_prefetch.nil?
           owner, desc_table_name, db_link = @connection.describe(table_name)
-          @do_not_prefetch_primary_key [table_name] = do_not_prefetch = !has_primary_key?(table_name, owner, desc_table_name, db_link) || has_primary_key_trigger?(table_name, owner, desc_table_name, db_link)
+          @do_not_prefetch_primary_key[table_name] = do_not_prefetch = !has_primary_key?(table_name, owner, desc_table_name, db_link) || has_primary_key_trigger?(table_name, owner, desc_table_name, db_link)
         end
         !do_not_prefetch
       end

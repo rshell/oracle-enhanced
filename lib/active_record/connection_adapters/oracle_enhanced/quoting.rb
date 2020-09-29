@@ -126,6 +126,10 @@ module ActiveRecord
           "0".freeze
         end
 
+        def quoted_date(value)
+          super(value.change(usec: 0))
+        end
+
         def _type_cast(value)
           case value
           when Type::OracleEnhanced::TimestampTz::Data, Type::OracleEnhanced::TimestampLtz::Data

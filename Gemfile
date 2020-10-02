@@ -1,52 +1,27 @@
-source 'http://rubygems.org'
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+git_source(:github) { |repo| "https://github.com/#{repo}.git" }
 
 group :development do
-  gem 'jeweler', '~> 1.5.1'
-  gem 'rspec', '~> 2.4'
-  gem 'rdoc'
+  gem "rspec"
+  gem "rdoc"
+  gem "rake", "~> 13.0.0.pre.1"
+  gem "rubocop", require: false
+  gem "rubocop-performance", require: false
+  gem "rubocop-rails", require: false
 
-  if ENV['RAILS_GEM_VERSION']
-    gem 'activerecord', "=#{ENV['RAILS_GEM_VERSION']}"
-    gem 'actionpack', "=#{ENV['RAILS_GEM_VERSION']}"
-    gem 'activesupport', "=#{ENV['RAILS_GEM_VERSION']}"
-    case ENV['RAILS_GEM_VERSION']
-    when /^2.0/
-      gem 'composite_primary_keys', '=0.9.93'
-    when /^2.1/
-      gem 'composite_primary_keys', '=1.0.8'
-    when /^2.2/
-      gem 'composite_primary_keys', '=2.2.2'
-    when /^2.3.3/
-      gem 'composite_primary_keys', '=2.3.2'
-    when /^3/
-      gem 'railties', "=#{ENV['RAILS_GEM_VERSION']}"
-    end
-  else
-    %w(activerecord activemodel activesupport actionpack railties).each do |gem_name|
-      if ENV['RAILS_GEM_PATH']
-        gem gem_name, :path => File.join(ENV['RAILS_GEM_PATH'], gem_name)
-      else
-        gem gem_name, :git => "git://github.com/rails/rails"
-      end
-    end
-
-    if ENV['AREL_GEM_PATH']
-      gem 'arel', :path => ENV['AREL_GEM_PATH']
-    else
-      gem 'arel', :git => "git://github.com/rails/arel"
-    end
-
-    if ENV['JOURNEY_GEM_PATH']
-      gem 'journey', :path => ENV['JOURNEY_GEM_PATH']
-    else
-      gem "journey", :git => "git://github.com/rails/journey"
-    end
-  end
-
-  gem 'ruby-plsql', '>=0.4.4'
+  gem "activerecord",   github: "rails/rails", branch: "master"
+  gem "ruby-plsql", github: "rsim/ruby-plsql", branch: "master"
 
   platforms :ruby do
-    gem 'ruby-oci8', '>=2.0.4'
+    gem "ruby-oci8",    github: "kubo/ruby-oci8"
+    gem "byebug"
   end
 
+  platforms :jruby do
+    gem "pry"
+    gem "pry-nav"
+  end
 end

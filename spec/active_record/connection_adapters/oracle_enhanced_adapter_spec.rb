@@ -1,37 +1,4 @@
-require 'spec_helper'
-
-describe "OracleEnhancedAdapter establish connection" do
-
-  it "should connect to database" do
-    ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
-    ActiveRecord::Base.connection.should_not be_nil
-    ActiveRecord::Base.connection.class.should == ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter
-  end
-
-  it "should connect to database as SYSDBA" do
-    ActiveRecord::Base.establish_connection(SYS_CONNECTION_PARAMS)
-    ActiveRecord::Base.connection.should_not be_nil
-    ActiveRecord::Base.connection.class.should == ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter
-  end
-
-  it "should be active after connection to database" do
-    ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
-    ActiveRecord::Base.connection.should be_active
-  end
-
-  it "should not be active after disconnection to database" do
-    ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
-    ActiveRecord::Base.connection.disconnect!
-    ActiveRecord::Base.connection.should_not be_active
-  end
-
-  it "should be active after reconnection to database" do
-    ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
-    ActiveRecord::Base.connection.reconnect!
-    ActiveRecord::Base.connection.should be_active
-  end
-  
-end
+# frozen_string_literal: true
 
 describe "OracleEnhancedAdapter" do
   include LoggerSpecHelper
@@ -40,180 +7,36 @@ describe "OracleEnhancedAdapter" do
   before(:all) do
     ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
   end
-  
-  describe "database session store" do
-    before(:all) do
-      @conn.execute "DROP TABLE sessions" rescue nil
-      @conn.execute "DROP SEQUENCE sessions_seq" rescue nil
-      @conn = ActiveRecord::Base.connection
-      @conn.execute <<-SQL
-        CREATE TABLE sessions (
-          id          NUMBER(38,0) NOT NULL,
-          session_id  VARCHAR2(255) DEFAULT NULL,
-          data        CLOB DEFAULT NULL,
-          created_at  DATE DEFAULT NULL,
-          updated_at  DATE DEFAULT NULL,
-          PRIMARY KEY (ID)
-        )
-      SQL
-      @conn.execute <<-SQL
-        CREATE SEQUENCE sessions_seq  MINVALUE 1 MAXVALUE 999999999999999999999999999
-          INCREMENT BY 1 START WITH 10040 CACHE 20 NOORDER NOCYCLE
-      SQL
-      if ENV['RAILS_GEM_VERSION'] >= '2.3'
-        @session_class = ActiveRecord::SessionStore::Session
-      else
-        @session_class = CGI::Session::ActiveRecordStore::Session
-      end
-    end
-
-    after(:all) do
-      @conn.execute "DROP TABLE sessions"
-      @conn.execute "DROP SEQUENCE sessions_seq"
-    end
-
-    it "should create sessions table" do
-      ActiveRecord::Base.connection.tables.grep("sessions").should_not be_empty
-    end
-
-    it "should save session data" do
-      @session = @session_class.new :session_id => "111111", :data  => "something" #, :updated_at => Time.now
-      @session.save!
-      @session = @session_class.find_by_session_id("111111")
-      @session.data.should == "something"
-    end
-
-    it "should change session data when partial updates enabled" do
-      return pending("Not in this ActiveRecord version") unless @session_class.respond_to?(:partial_updates=)
-      @session_class.partial_updates = true
-      @session = @session_class.new :session_id => "222222", :data  => "something" #, :updated_at => Time.now
-      @session.save!
-      @session = @session_class.find_by_session_id("222222")
-      @session.data = "other thing"
-      @session.save!
-      # second save should call again blob writing callback
-      @session.save!
-      @session = @session_class.find_by_session_id("222222")
-      @session.data.should == "other thing"
-    end
-
-    it "should have one enhanced_write_lobs callback" do
-      return pending("Not in this ActiveRecord version") unless @session_class.respond_to?(:after_save_callback_chain)
-      @session_class.after_save_callback_chain.select{|cb| cb.method == :enhanced_write_lobs}.should have(1).record
-    end
-
-    it "should not set sessions table session_id column type as integer if emulate_integers_by_column_name is true" do
-      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.emulate_integers_by_column_name = true
-      columns = @conn.columns('sessions')
-      column = columns.detect{|c| c.name == "session_id"}
-      column.type.should == :string
-    end
-
-  end
-
-  describe "ignore specified table columns" do
-    before(:all) do
-      @conn = ActiveRecord::Base.connection
-      @conn.execute "DROP TABLE test_employees" rescue nil
-      @conn.execute <<-SQL
-        CREATE TABLE test_employees (
-          id            NUMBER PRIMARY KEY,
-          first_name    VARCHAR2(20),
-          last_name     VARCHAR2(25),
-          email         VARCHAR2(25),
-          phone_number  VARCHAR2(20),
-          hire_date     DATE,
-          job_id        NUMBER,
-          salary        NUMBER,
-          commission_pct  NUMBER(2,2),
-          manager_id    NUMBER(6),
-          department_id NUMBER(4,0),
-          created_at    DATE
-        )
-      SQL
-      @conn.execute "DROP SEQUENCE test_employees_seq" rescue nil
-      @conn.execute <<-SQL
-        CREATE SEQUENCE test_employees_seq  MINVALUE 1
-          INCREMENT BY 1 START WITH 1 CACHE 20 NOORDER NOCYCLE
-      SQL
-    end
-
-    after(:all) do
-      @conn.execute "DROP TABLE test_employees"
-      @conn.execute "DROP SEQUENCE test_employees_seq"
-    end
-
-    after(:each) do
-      Object.send(:remove_const, "TestEmployee")
-      ActiveRecord::Base.connection.clear_ignored_table_columns
-      ActiveRecord::Base.clear_cache! if ActiveRecord::Base.respond_to?(:"clear_cache!")
-    end
-
-    it "should ignore specified table columns" do
-      class ::TestEmployee < ActiveRecord::Base
-        ignore_table_columns  :phone_number, :hire_date
-      end
-      TestEmployee.connection.columns('test_employees').select{|c| ['phone_number','hire_date'].include?(c.name) }.should be_empty
-    end
-
-    it "should ignore specified table columns specified in several lines" do
-      class ::TestEmployee < ActiveRecord::Base
-        ignore_table_columns  :phone_number
-        ignore_table_columns  :hire_date
-      end
-      TestEmployee.connection.columns('test_employees').select{|c| ['phone_number','hire_date'].include?(c.name) }.should be_empty
-    end
-
-    it "should not ignore unspecified table columns" do
-      class ::TestEmployee < ActiveRecord::Base
-        ignore_table_columns  :phone_number, :hire_date
-      end
-      TestEmployee.connection.columns('test_employees').select{|c| c.name == 'email' }.should_not be_empty
-    end
-
-    it "should ignore specified table columns in other connection" do
-      class ::TestEmployee < ActiveRecord::Base
-        ignore_table_columns  :phone_number, :hire_date
-      end
-      # establish other connection
-      other_conn = ActiveRecord::Base.oracle_enhanced_connection(CONNECTION_PARAMS)
-      other_conn.columns('test_employees').select{|c| ['phone_number','hire_date'].include?(c.name) }.should be_empty
-    end
-
-  end
 
   describe "cache table columns" do
     before(:all) do
       @conn = ActiveRecord::Base.connection
-      @conn.execute "DROP TABLE test_employees" rescue nil
-      @oracle11g = !! @conn.select_value("SELECT * FROM v$version WHERE banner LIKE 'Oracle%11g%'")
-      @conn.execute <<-SQL
-        CREATE TABLE test_employees (
-          id            NUMBER PRIMARY KEY,
-          first_name    VARCHAR2(20),
-          last_name     VARCHAR2(25),
-          #{ @oracle11g ? "full_name AS (first_name || ' ' || last_name)," : "full_name VARCHAR2(46),"}
-          hire_date     DATE
-        )
-      SQL
-      @conn.execute <<-SQL
-        CREATE TABLE test_employees_without_pk (
-          first_name    VARCHAR2(20),
-          last_name     VARCHAR2(25),
-          hire_date     DATE
-        )
-      SQL
-      @column_names = ['id', 'first_name', 'last_name', 'full_name', 'hire_date']
-      @column_sql_types = ["NUMBER", "VARCHAR2(20)", "VARCHAR2(25)", "VARCHAR2(46)", "DATE"]
+      schema_define do
+        create_table :test_employees, force: true do |t|
+          t.string  :first_name, limit: 20
+          t.string  :last_name, limit: 25
+          if ActiveRecord::Base.connection.supports_virtual_columns?
+            t.virtual :full_name, as: "(first_name || ' ' || last_name)"
+          else
+            t.string  :full_name, limit: 46
+          end
+          t.date    :hire_date
+        end
+      end
+      schema_define do
+        create_table :test_employees_without_pk, id: false, force: true do |t|
+          t.string  :first_name, limit: 20
+          t.string  :last_name, limit: 25
+          t.date    :hire_date
+        end
+      end
+      @column_names = ["id", "first_name", "last_name", "full_name", "hire_date"]
+      @column_sql_types = ["NUMBER(38)", "VARCHAR2(20)", "VARCHAR2(25)", "VARCHAR2(46)", "DATE"]
       class ::TestEmployee < ActiveRecord::Base
       end
       # Another class using the same table
       class ::TestEmployee2 < ActiveRecord::Base
-        if self.respond_to?(:table_name=)
-          self.table_name = "test_employees"
-        else
-          set_table_name "test_employees"
-        end
+        self.table_name = "test_employees"
       end
     end
 
@@ -221,16 +44,14 @@ describe "OracleEnhancedAdapter" do
       @conn = ActiveRecord::Base.connection
       Object.send(:remove_const, "TestEmployee")
       Object.send(:remove_const, "TestEmployee2")
-      @conn.execute "DROP TABLE test_employees"
-      @conn.execute "DROP TABLE test_employees_without_pk"
-      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.cache_columns = nil
-      ActiveRecord::Base.clear_cache! if ActiveRecord::Base.respond_to?(:"clear_cache!")
+      @conn.drop_table :test_employees, if_exists: true
+      @conn.drop_table :test_employees_without_pk, if_exists: true
+      ActiveRecord::Base.clear_cache!
     end
 
     before(:each) do
       set_logger
       @conn = ActiveRecord::Base.connection
-      @conn.clear_columns_cache
     end
 
     after(:each) do
@@ -238,367 +59,52 @@ describe "OracleEnhancedAdapter" do
     end
 
     describe "without column caching" do
-
-      before(:each) do
-        ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.cache_columns = false
-      end
-
-      it 'should identify virtual columns as such' do
-        pending "Not supported in this database version" unless @oracle11g
-        te = TestEmployee.connection.columns('test_employees').detect(&:virtual?)
-        te.name.should == 'full_name'
+      it "should identify virtual columns as such" do
+        skip "Not supported in this database version" unless @conn.supports_virtual_columns?
+        te = TestEmployee.connection.columns("test_employees").detect(&:virtual?)
+        expect(te.name).to eq("full_name")
       end
 
       it "should get columns from database at first time" do
-        TestEmployee.connection.columns('test_employees').map(&:name).should == @column_names
-        @logger.logged(:debug).last.should =~ /select .* from all_tab_cols/im
+        @conn.clear_table_columns_cache(:test_employees)
+        expect(TestEmployee.connection.columns("test_employees").map(&:name)).to eq(@column_names)
+        expect(@logger.logged(:debug).last).to match(/select .* from all_tab_cols/im)
       end
 
-      it "should get columns from database at second time" do
-        TestEmployee.connection.columns('test_employees')
+      it "should not get columns from database at second time" do
+        TestEmployee.connection.columns("test_employees")
         @logger.clear(:debug)
-        TestEmployee.connection.columns('test_employees').map(&:name).should == @column_names
-        @logger.logged(:debug).last.should =~ /select .* from all_tab_cols/im
+        expect(TestEmployee.connection.columns("test_employees").map(&:name)).to eq(@column_names)
+        expect(@logger.logged(:debug).last).not_to match(/select .* from all_tab_cols/im)
       end
 
       it "should get primary key from database at first time" do
-        TestEmployee.connection.pk_and_sequence_for('test_employees').should == ['id', nil]
-        @logger.logged(:debug).last.should =~ /select .* from all_constraints/im
+        expect(TestEmployee.connection.pk_and_sequence_for("test_employees")).to eq(["id", "test_employees_seq"])
+        expect(@logger.logged(:debug).last).to match(/select .* from all_constraints/im)
       end
 
       it "should get primary key from database at first time" do
-        TestEmployee.connection.pk_and_sequence_for('test_employees').should == ['id', nil]
+        expect(TestEmployee.connection.pk_and_sequence_for("test_employees")).to eq(["id", "test_employees_seq"])
         @logger.clear(:debug)
-        TestEmployee.connection.pk_and_sequence_for('test_employees').should == ['id', nil]
-        @logger.logged(:debug).last.should =~ /select .* from all_constraints/im
+        expect(TestEmployee.connection.pk_and_sequence_for("test_employees")).to eq(["id", "test_employees_seq"])
+        expect(@logger.logged(:debug).last).to match(/select .* from all_constraints/im)
       end
 
       it "should have correct sql types when 2 models are using the same table and AR query cache is enabled" do
         @conn.cache do
-          TestEmployee.columns.map(&:sql_type).should == @column_sql_types
-          TestEmployee2.columns.map(&:sql_type).should == @column_sql_types
+          expect(TestEmployee.columns.map(&:sql_type)).to eq(@column_sql_types)
+          expect(TestEmployee2.columns.map(&:sql_type)).to eq(@column_sql_types)
         end
       end
 
-    end
-
-    describe "with column caching" do
-
-      before(:each) do
-        ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.cache_columns = true
-      end
-
-      it "should get columns from database at first time" do
-        TestEmployee.connection.columns('test_employees').map(&:name).should == @column_names
-        @logger.logged(:debug).last.should =~ /select .* from all_tab_cols/im
-      end
-
-      it "should get columns from cache at second time" do
-        TestEmployee.connection.columns('test_employees')
+      it "should get sequence value at next time" do
+        TestEmployee.create!
+        expect(@logger.logged(:debug).first).not_to match(/SELECT \"TEST_EMPLOYEES_SEQ\".NEXTVAL FROM dual/im)
         @logger.clear(:debug)
-        TestEmployee.connection.columns('test_employees').map(&:name).should == @column_names
-        @logger.logged(:debug).last.should be_blank
-      end
-
-      it "should get primary key from database at first time" do
-        TestEmployee.connection.pk_and_sequence_for('test_employees').should == ['id', nil]
-        @logger.logged(:debug).last.should =~ /select .* from all_constraints/im
-      end
-
-      it "should get primary key from cache at first time" do
-        TestEmployee.connection.pk_and_sequence_for('test_employees').should == ['id', nil]
-        @logger.clear(:debug)
-        TestEmployee.connection.pk_and_sequence_for('test_employees').should == ['id', nil]
-        @logger.logged(:debug).last.should be_blank
-      end
-
-      it "should store primary key as nil in cache at first time for table without primary key" do
-        TestEmployee.connection.pk_and_sequence_for('test_employees_without_pk').should == nil
-        @logger.clear(:debug)
-        TestEmployee.connection.pk_and_sequence_for('test_employees_without_pk').should == nil
-        @logger.logged(:debug).last.should be_blank
-      end
-
-    end
-
-  end
-
-  describe "without composite_primary_keys" do
-
-    before(:all) do
-      @conn = ActiveRecord::Base.connection
-      @conn.execute "DROP TABLE test_employees" rescue nil
-      @conn.execute <<-SQL
-        CREATE TABLE test_employees (
-          employee_id   NUMBER PRIMARY KEY,
-          name          VARCHAR2(50)
-        )
-      SQL
-      Object.send(:remove_const, 'CompositePrimaryKeys') if defined?(CompositePrimaryKeys)
-      class ::TestEmployee < ActiveRecord::Base
-        if self.respond_to?(:primary_key=)
-          self.primary_key = :employee_id
-        else
-          set_primary_key :employee_id
-        end
+        TestEmployee.create!
+        expect(@logger.logged(:debug).first).to match(/SELECT \"TEST_EMPLOYEES_SEQ\".NEXTVAL FROM dual/im)
       end
     end
-
-    after(:all) do
-      Object.send(:remove_const, "TestEmployee")
-      @conn.execute "DROP TABLE test_employees"
-      ActiveRecord::Base.clear_cache! if ActiveRecord::Base.respond_to?(:"clear_cache!")
-    end
-
-    it "should tell ActiveRecord that count distinct is supported" do
-      ActiveRecord::Base.connection.supports_count_distinct?.should be_true
-    end
-
-    it "should execute correct SQL COUNT DISTINCT statement" do
-      lambda { TestEmployee.count(:employee_id, :distinct => true) }.should_not raise_error
-    end
-
-  end
-
-
-  describe "reserved words column quoting" do
-
-    before(:all) do
-      schema_define do
-        create_table :test_reserved_words do |t|
-          t.string      :varchar2
-          t.integer     :integer
-          t.text        :comment
-        end
-      end
-      class ::TestReservedWord < ActiveRecord::Base; end
-    end
-
-    after(:all) do
-      schema_define do
-        drop_table :test_reserved_words
-      end
-      Object.send(:remove_const, "TestReservedWord")
-      ActiveRecord::Base.table_name_prefix = nil
-      ActiveRecord::Base.clear_cache! if ActiveRecord::Base.respond_to?(:"clear_cache!")
-    end
-
-    before(:each) do
-      set_logger
-    end
-
-    after(:each) do
-      clear_logger
-    end
-
-    it "should create table" do
-      [:varchar2, :integer, :comment].each do |attr|
-        TestReservedWord.columns_hash[attr.to_s].name.should == attr.to_s
-      end
-    end
-
-    it "should create record" do
-      attrs = {
-        :varchar2 => 'dummy',
-        :integer => 1,
-        :comment => 'dummy'
-      }
-      record = TestReservedWord.create!(attrs)
-      record.reload
-      attrs.each do |k, v|
-        record.send(k).should == v
-      end
-    end
-
-    it "should remove double quotes in column quoting" do
-      ActiveRecord::Base.connection.quote_column_name('aaa "bbb" ccc').should == '"aaa bbb ccc"'
-    end
-
-  end
-
-  describe "valid table names" do
-    before(:all) do
-      @adapter = ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter
-    end
-
-    it "should be valid with letters and digits" do
-      @adapter.valid_table_name?("abc_123").should be_true
-    end
-
-    it "should be valid with schema name" do
-      @adapter.valid_table_name?("abc_123.def_456").should be_true
-    end
-
-    it "should be valid with $ in name" do
-      @adapter.valid_table_name?("sys.v$session").should be_true
-    end
-
-    it "should be valid with upcase schema name" do
-      @adapter.valid_table_name?("ABC_123.DEF_456").should be_true
-    end
-
-    it "should be valid with irregular schema name and database links" do
-      @adapter.valid_table_name?('abc$#_123.abc$#_123@abc$#@._123').should be_true
-    end
-
-    it "should not be valid with two dots in name" do
-      @adapter.valid_table_name?("abc_123.def_456.ghi_789").should be_false
-    end
-
-    it "should not be valid with invalid characters" do
-      @adapter.valid_table_name?("warehouse-things").should be_false
-    end
-
-    it "should not be valid with for camel-case" do
-      @adapter.valid_table_name?("Abc").should be_false
-      @adapter.valid_table_name?("aBc").should be_false
-      @adapter.valid_table_name?("abC").should be_false
-    end
-    
-    it "should not be valid for names > 30 characters" do
-      @adapter.valid_table_name?("a" * 31).should be_false
-    end
-    
-    it "should not be valid for schema names > 30 characters" do
-      @adapter.valid_table_name?(("a" * 31) + ".validname").should be_false
-    end
-    
-    it "should not be valid for database links > 128 characters" do
-      @adapter.valid_table_name?("name@" + "a" * 129).should be_false
-    end
-    
-    it "should not be valid for names that do not begin with alphabetic characters" do
-      @adapter.valid_table_name?("1abc").should be_false
-      @adapter.valid_table_name?("_abc").should be_false
-      @adapter.valid_table_name?("abc.1xyz").should be_false
-      @adapter.valid_table_name?("abc._xyz").should be_false
-    end
-  end
-
-  describe "table quoting" do
-
-    def create_warehouse_things_table
-      ActiveRecord::Schema.define do
-        suppress_messages do
-          create_table "warehouse-things" do |t|
-            t.string      :name
-            t.integer     :foo
-          end
-        end
-      end
-    end
-
-    def create_camel_case_table
-      ActiveRecord::Schema.define do
-        suppress_messages do
-          create_table "CamelCase" do |t|
-            t.string      :name
-            t.integer     :foo
-          end
-        end
-      end
-    end
-
-    before(:all) do
-      @conn = ActiveRecord::Base.connection
-    end
-
-    after(:each) do
-      ActiveRecord::Schema.define do
-        suppress_messages do
-          drop_table "warehouse-things" rescue nil
-          drop_table "CamelCase" rescue nil
-        end
-      end
-      Object.send(:remove_const, "WarehouseThing") rescue nil
-      Object.send(:remove_const, "CamelCase") rescue nil
-    end
-
-    it "should allow creation of a table with non alphanumeric characters" do
-      create_warehouse_things_table
-      class ::WarehouseThing < ActiveRecord::Base
-        if self.respond_to?(:table_name=)
-          self.table_name = "warehouse-things"
-        else
-          set_table_name "warehouse-things"
-        end
-      end
-
-      wh = WarehouseThing.create!(:name => "Foo", :foo => 2)
-      wh.id.should_not be_nil
-
-      @conn.tables.should include("warehouse-things")
-    end
-
-    it "should allow creation of a table with CamelCase name" do
-      create_camel_case_table
-      class ::CamelCase < ActiveRecord::Base
-        if self.respond_to?(:table_name=)
-          self.table_name = "CamelCase"
-        else
-          set_table_name "CamelCase"
-        end
-      end
-
-      cc = CamelCase.create!(:name => "Foo", :foo => 2)
-      cc.id.should_not be_nil
-    
-      @conn.tables.should include("CamelCase")
-    end
-
-  end
-
-  describe "access table over database link" do
-    before(:all) do
-      @conn = ActiveRecord::Base.connection
-      @db_link = "db_link"
-      @sys_conn = ActiveRecord::Base.oracle_enhanced_connection(SYSTEM_CONNECTION_PARAMS)
-      @sys_conn.drop_table :test_posts rescue nil
-      @sys_conn.create_table :test_posts do |t|
-        t.string      :title
-        # cannot update LOBs over database link
-        t.string      :body
-        t.timestamps
-      end
-      @db_link_username = SYSTEM_CONNECTION_PARAMS[:username]
-      @db_link_password = SYSTEM_CONNECTION_PARAMS[:password]
-      @db_link_database = SYSTEM_CONNECTION_PARAMS[:database]
-      @conn.execute "DROP DATABASE LINK #{@db_link}" rescue nil
-      @conn.execute "CREATE DATABASE LINK #{@db_link} CONNECT TO #{@db_link_username} IDENTIFIED BY \"#{@db_link_password}\" USING '#{@db_link_database}'"
-      @conn.execute "CREATE OR REPLACE SYNONYM test_posts FOR test_posts@#{@db_link}"
-      @conn.execute "CREATE OR REPLACE SYNONYM test_posts_seq FOR test_posts_seq@#{@db_link}"
-      class ::TestPost < ActiveRecord::Base
-      end
-      if TestPost.respond_to?(:table_name=)
-        TestPost.table_name = "test_posts"
-      else
-        TestPost.set_table_name "test_posts"
-      end
-    end
-
-    after(:all) do
-      @conn.execute "DROP SYNONYM test_posts"
-      @conn.execute "DROP SYNONYM test_posts_seq"
-      @conn.execute "DROP DATABASE LINK #{@db_link}" rescue nil
-      @sys_conn.drop_table :test_posts rescue nil
-      Object.send(:remove_const, "TestPost") rescue nil
-      ActiveRecord::Base.clear_cache! if ActiveRecord::Base.respond_to?(:"clear_cache!")
-    end
-
-    it "should verify database link" do
-      @conn.select_value("select * from dual@#{@db_link}") == 'X'
-    end
-
-    it "should get column names" do
-      TestPost.column_names.should == ["id", "title", "body", "created_at", "updated_at"]
-    end
-
-    it "should create record" do
-      p = TestPost.create(:title => "Title", :body => "Body")
-      p.id.should_not be_nil
-      TestPost.find(p.id).should_not be_nil
-    end
-
   end
 
   describe "session information" do
@@ -608,39 +114,39 @@ describe "OracleEnhancedAdapter" do
 
     it "should get current database name" do
       # get database name if using //host:port/database connection string
-      database_name = CONNECTION_PARAMS[:database].split('/').last
-      @conn.current_database.upcase.should == database_name.upcase
+      database_name = CONNECTION_PARAMS[:database].split("/").last
+      expect(@conn.current_database.upcase).to eq(database_name.upcase)
     end
 
     it "should get current database session user" do
-      @conn.current_user.upcase.should == CONNECTION_PARAMS[:username].upcase
+      expect(@conn.current_user.upcase).to eq(CONNECTION_PARAMS[:username].upcase)
     end
   end
 
   describe "temporary tables" do
     before(:all) do
-      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.default_tablespaces[:table] = 'UNUSED'
-      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.default_tablespaces[:clob] = 'UNUSED'
+      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.default_tablespaces[:table] = "UNUSED"
+      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.default_tablespaces[:clob] = "UNUSED"
       @conn = ActiveRecord::Base.connection
     end
     after(:all) do
-      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.default_tablespaces={}
+      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.default_tablespaces = {}
     end
 
     after(:each) do
-      @conn.drop_table :foos rescue nil
+      @conn.drop_table :foos, if_exists: true
     end
     it "should create ok" do
-      @conn.create_table :foos, :temporary => true, :id => false do |t|
+      @conn.create_table :foos, temporary: true, id: false do |t|
         t.integer :id
         t.text :bar
       end
     end
     it "should show up as temporary" do
-      @conn.create_table :foos, :temporary => true, :id => false do |t|
+      @conn.create_table :foos, temporary: true, id: false do |t|
         t.integer :id
       end
-      @conn.temporary_table?("foos").should be_true
+      expect(@conn.temporary_table?("foos")).to be_truthy
     end
   end
 
@@ -665,8 +171,8 @@ describe "OracleEnhancedAdapter" do
       @ids = (1..1010).to_a
       TestPost.transaction do
         @ids.each do |id|
-          TestPost.create!(:id => id, :title => "Title #{id}")
-          TestComment.create!(:test_post_id => id, :description => "Description #{id}")
+          TestPost.create!(id: id, title: "Title #{id}")
+          TestComment.create!(test_post_id: id, description: "Description #{id}")
         end
       end
     end
@@ -678,22 +184,61 @@ describe "OracleEnhancedAdapter" do
       end
       Object.send(:remove_const, "TestPost")
       Object.send(:remove_const, "TestComment")
-      ActiveRecord::Base.clear_cache! if ActiveRecord::Base.respond_to?(:"clear_cache!")
+      ActiveRecord::Base.clear_cache!
     end
 
     it "should load included association with more than 1000 records" do
-      posts = TestPost.includes(:test_comments).all
-      posts.size.should == @ids.size
+      posts = TestPost.includes(:test_comments).to_a
+      expect(posts.size).to eq(@ids.size)
+    end
+  end
+
+  describe "lists" do
+    before(:all) do
+      schema_define do
+        create_table :test_posts do |t|
+          t.string :title
+        end
+      end
+      class ::TestPost < ActiveRecord::Base
+        has_many :test_comments
+      end
+      @ids = (1..1010).to_a
+      TestPost.transaction do
+        @ids.each do |id|
+          TestPost.create!(id: id, title: "Title #{id}")
+        end
+      end
     end
 
-  end if ENV['RAILS_GEM_VERSION'] >= '3.1'
+    after(:all) do
+      schema_define do
+        drop_table :test_posts
+      end
+      Object.send(:remove_const, "TestPost")
+      ActiveRecord::Base.clear_cache!
+    end
+
+    ##
+    # See this GitHub issue for an explanation of homogenous lists.
+    # https://github.com/rails/rails/commit/72fd0bae5948c1169411941aeea6fef4c58f34a9
+    it "should allow more than 1000 items in a list where the list is homogenous" do
+      posts = TestPost.where(id: @ids).to_a
+      expect(posts.size).to eq(@ids.size)
+    end
+
+    it "should allow more than 1000 items in a list where the list is non-homogenous" do
+      posts = TestPost.where(id: [*@ids, nil]).to_a
+      expect(posts.size).to eq(@ids.size)
+    end
+  end
 
   describe "with statement pool" do
     before(:all) do
-      ActiveRecord::Base.establish_connection(CONNECTION_PARAMS.merge(:statement_limit => 3))
+      ActiveRecord::Base.establish_connection(CONNECTION_PARAMS.merge(statement_limit: 3))
       @conn = ActiveRecord::Base.connection
       schema_define do
-        drop_table :test_posts rescue nil
+        drop_table :test_posts, if_exists: true
         create_table :test_posts
       end
       class ::TestPost < ActiveRecord::Base
@@ -710,43 +255,48 @@ describe "OracleEnhancedAdapter" do
         drop_table :test_posts
       end
       Object.send(:remove_const, "TestPost")
-      ActiveRecord::Base.clear_cache! if ActiveRecord::Base.respond_to?(:"clear_cache!")
+      ActiveRecord::Base.clear_cache!
     end
 
     it "should clear older cursors when statement limit is reached" do
-      pk = TestPost.columns.find { |c| c.primary }
-      sub = @conn.substitute_at(pk, 0)
-      binds = [[pk, 1]]
-
-      lambda {
+      binds = [ActiveRecord::Relation::QueryAttribute.new("id", 1, ActiveRecord::Type::OracleEnhanced::Integer.new)]
+      # free statement pool from dictionary selections  to ensure next selects will increase statement pool
+      @statements.clear
+      expect {
         4.times do |i|
-          @conn.exec_query("SELECT * FROM test_posts WHERE #{i}=#{i} AND id = #{sub}", "SQL", binds)
+          @conn.exec_query("SELECT * FROM test_posts WHERE #{i}=#{i} AND id = :id", "SQL", binds)
         end
-      }.should change(@statements, :length).by(+3)
+      }.to change(@statements, :length).by(+3)
     end
 
     it "should cache UPDATE statements with bind variables" do
-      lambda {
-        pk = TestPost.columns.find { |c| c.primary }
-        sub = @conn.substitute_at(pk, 0)
-        binds = [[pk, 1]]
-        @conn.exec_update("UPDATE test_posts SET id = #{sub}", "SQL", binds)
-      }.should change(@statements, :length).by(+1)
+      expect {
+        binds = [ActiveRecord::Relation::QueryAttribute.new("id", 1, ActiveRecord::Type::OracleEnhanced::Integer.new)]
+        @conn.exec_update("UPDATE test_posts SET id = :id", "SQL", binds)
+      }.to change(@statements, :length).by(+1)
     end
 
     it "should not cache UPDATE statements without bind variables" do
-      lambda {
+      expect {
         binds = []
         @conn.exec_update("UPDATE test_posts SET id = 1", "SQL", binds)
-      }.should_not change(@statements, :length)
+      }.not_to change(@statements, :length)
     end
-  end if ENV['RAILS_GEM_VERSION'] >= '3.1'
+  end
+
+  describe "database_exists?" do
+    it "should raise `NotImplementedError`" do
+      expect {
+        ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.database_exists?(CONNECTION_PARAMS)
+      }.to raise_error(NotImplementedError)
+    end
+  end
 
   describe "explain" do
     before(:all) do
       @conn = ActiveRecord::Base.connection
       schema_define do
-        drop_table :test_posts rescue nil
+        drop_table :test_posts, if_exists: true
         create_table :test_posts
       end
       class ::TestPost < ActiveRecord::Base
@@ -758,21 +308,364 @@ describe "OracleEnhancedAdapter" do
         drop_table :test_posts
       end
       Object.send(:remove_const, "TestPost")
-      ActiveRecord::Base.clear_cache! if ActiveRecord::Base.respond_to?(:"clear_cache!")
+      ActiveRecord::Base.clear_cache!
     end
 
     it "should explain query" do
-      explain = TestPost.where(:id => 1).explain
-      explain.should include("Cost")
-      explain.should include("INDEX UNIQUE SCAN")
+      explain = TestPost.where(id: 1).explain
+      expect(explain).to include("Cost")
+      expect(explain).to include("INDEX UNIQUE SCAN")
     end
 
     it "should explain query with binds" do
-      pk = TestPost.columns.find { |c| c.primary }
-      sub = @conn.substitute_at(pk, 0)
-      explain = TestPost.where(TestPost.arel_table[pk.name].eq(sub)).bind([pk, 1]).explain
-      explain.should include("Cost")
-      explain.should include("INDEX UNIQUE SCAN")
+      binds = [ActiveRecord::Relation::QueryAttribute.new("id", 1, ActiveRecord::Type::OracleEnhanced::Integer.new)]
+      explain = TestPost.where(id: binds).explain
+      expect(explain).to include("Cost")
+      expect(explain).to include("INDEX UNIQUE SCAN").or include("TABLE ACCESS FULL")
     end
-  end if ENV['RAILS_GEM_VERSION'] >= '3.2'
+  end
+
+  describe "using offset and limit" do
+    before(:all) do
+      @conn = ActiveRecord::Base.connection
+      schema_define do
+        create_table :test_employees, force: true do |t|
+          t.integer   :sort_order
+          t.string    :first_name, limit: 20
+          t.string    :last_name, limit: 20
+          t.timestamps
+        end
+      end
+      @employee = Class.new(ActiveRecord::Base) do
+        self.table_name = :test_employees
+      end
+      @employee.create!(sort_order: 1, first_name: "Peter",   last_name: "Parker")
+      @employee.create!(sort_order: 2, first_name: "Tony",    last_name: "Stark")
+      @employee.create!(sort_order: 3, first_name: "Steven",  last_name: "Rogers")
+      @employee.create!(sort_order: 4, first_name: "Bruce",   last_name: "Banner")
+      @employee.create!(sort_order: 5, first_name: "Natasha", last_name: "Romanova")
+    end
+
+    after(:all) do
+      @conn.drop_table :test_employees, if_exists: true
+    end
+
+    after(:each) do
+      ActiveRecord::Base.clear_cache!
+    end
+
+    it "should return n records with limit(n)" do
+      expect(@employee.limit(3).to_a.size).to be(3)
+    end
+
+    it "should return less than n records with limit(n) if there exist less than n records" do
+      expect(@employee.limit(10).to_a.size).to be(5)
+    end
+
+    it "should return the records starting from offset n with offset(n)" do
+      expect(@employee.order(:sort_order).first.first_name).to eq("Peter")
+      expect(@employee.order(:sort_order).offset(0).first.first_name).to eq("Peter")
+      expect(@employee.order(:sort_order).offset(1).first.first_name).to eq("Tony")
+      expect(@employee.order(:sort_order).offset(4).first.first_name).to eq("Natasha")
+    end
+  end
+
+  describe "valid_type?" do
+    before(:all) do
+      @conn = ActiveRecord::Base.connection
+      schema_define do
+        create_table :test_employees, force: true do |t|
+          t.string :first_name, limit: 20
+        end
+      end
+    end
+
+    after(:all) do
+      @conn.drop_table :test_employees, if_exists: true
+    end
+
+    it "returns true when passed a valid type" do
+      column = @conn.columns("test_employees").find { |col| col.name == "first_name" }
+      expect(@conn.valid_type?(column.type)).to be true
+    end
+
+    it "returns false when passed an invalid type" do
+      expect(@conn.valid_type?(:foobar)).to be false
+    end
+  end
+
+  describe "serialized column" do
+    before(:all) do
+      schema_define do
+        create_table :test_serialized_columns do |t|
+          t.text :serialized
+        end
+      end
+      class ::TestSerializedColumn < ActiveRecord::Base
+        serialize :serialized, Array
+      end
+    end
+
+    after(:all) do
+      schema_define do
+        drop_table :test_serialized_columns
+      end
+      Object.send(:remove_const, "TestSerializedColumn")
+      ActiveRecord::Base.table_name_prefix = nil
+      ActiveRecord::Base.clear_cache!
+    end
+
+    before(:each) do
+      set_logger
+    end
+
+    after(:each) do
+      clear_logger
+    end
+
+    it "should serialize" do
+      new_value = "new_value"
+      serialized_column = TestSerializedColumn.new
+
+      expect(serialized_column.serialized).to eq([])
+      serialized_column.serialized << new_value
+      expect(serialized_column.serialized).to eq([new_value])
+      serialized_column.save
+      expect(serialized_column.save!).to eq(true)
+
+      serialized_column.reload
+      expect(serialized_column.serialized).to eq([new_value])
+      serialized_column.serialized = []
+      expect(serialized_column.save!).to eq(true)
+    end
+  end
+
+  describe "quoting" do
+    before(:all) do
+      schema_define do
+        create_table :test_logs, force: true do |t|
+          t.timestamp :send_time
+        end
+      end
+      class TestLog < ActiveRecord::Base
+        validates_uniqueness_of :send_time
+      end
+    end
+
+    after(:all) do
+      schema_define do
+        drop_table :test_logs
+      end
+      Object.send(:remove_const, "TestLog")
+      ActiveRecord::Base.clear_cache! if ActiveRecord::Base.respond_to?(:"clear_cache!")
+    end
+
+    it "should create records including Time"  do
+      TestLog.create! send_time: Time.now + 1.seconds
+      TestLog.create! send_time: Time.now + 2.seconds
+      expect(TestLog.count).to eq 2
+    end
+  end
+
+  describe "synonym_names" do
+    before(:all) do
+      schema_define do
+        create_table :test_comments, force: true do |t|
+          t.string :comment
+        end
+        add_synonym :synonym_comments, :test_comments
+      end
+    end
+
+    after(:all) do
+      schema_define do
+        drop_table :test_comments
+        remove_synonym :synonym_comments
+      end
+      ActiveRecord::Base.clear_cache! if ActiveRecord::Base.respond_to?(:"clear_cache!")
+    end
+
+    it "includes synonyms in data_source" do
+      conn = ActiveRecord::Base.connection
+      expect(conn).to be_data_source_exist("synonym_comments")
+      expect(conn.data_sources).to include("synonym_comments")
+    end
+  end
+
+  describe "dictionary selects with bind variables" do
+    before(:all) do
+      ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
+      @conn = ActiveRecord::Base.connection
+      schema_define do
+        drop_table :test_posts, if_exists: true
+        create_table :test_posts
+      end
+      class ::TestPost < ActiveRecord::Base
+      end
+    end
+
+    before(:each) do
+      @conn.clear_cache!
+      set_logger
+    end
+
+    after(:each) do
+      clear_logger
+    end
+
+    after(:all) do
+      schema_define do
+        drop_table :test_posts
+      end
+      Object.send(:remove_const, "TestPost")
+      ActiveRecord::Base.clear_cache!
+    end
+
+    it "should test table existence" do
+      expect(@conn.table_exists?("TEST_POSTS")).to eq true
+      expect(@conn.table_exists?("NOT_EXISTING")).to eq false
+    end
+
+    it "should return array from indexes with bind usage" do
+       expect(@conn.indexes("TEST_POSTS").class).to eq Array
+       expect(@logger.logged(:debug).last).to match(/:table_name/)
+       expect(@logger.logged(:debug).last).to match(/\["table_name", "TEST_POSTS"\]/)
+     end
+
+    it "should return content from columns without bind usage" do
+      expect(@conn.columns("TEST_POSTS").length).to be > 0
+      expect(@logger.logged(:debug).last).not_to match(/:table_name/)
+      expect(@logger.logged(:debug).last).not_to match(/\["table_name", "TEST_POSTS"\]/)
+    end
+
+    it "should return pk and sequence from pk_and_sequence_for without bind usage" do
+      expect(@conn.pk_and_sequence_for("TEST_POSTS").length).to eq 2
+      expect(@logger.logged(:debug).last).not_to match(/\["table_name", "TEST_POSTS"\]/)
+    end
+
+    it "should return pk from primary_keys with bind usage" do
+      expect(@conn.primary_keys("TEST_POSTS")).to eq ["id"]
+      expect(@logger.logged(:debug).last).to match(/\["table_name", "TEST_POSTS"\]/)
+    end
+
+    it "should return false from temporary_table? with bind usage" do
+      expect(@conn.temporary_table?("TEST_POSTS")).to eq false
+      expect(@logger.logged(:debug).last).to match(/:table_name/)
+      expect(@logger.logged(:debug).last).to match(/\["table_name", "TEST_POSTS"\]/)
+    end
+  end
+
+  describe "Transaction" do
+    before(:all) do
+      schema_define do
+        create_table :test_posts do |t|
+          t.string :title
+        end
+      end
+      class ::TestPost < ActiveRecord::Base
+      end
+      Thread.report_on_exception, @original_report_on_exception = false, Thread.report_on_exception
+    end
+
+    it "Raises Deadlocked when a deadlock is encountered" do
+      skip "Skip temporary due to #1599" if ActiveRecord::Base.connection.supports_fetch_first_n_rows_and_offset?
+      expect {
+        barrier = Concurrent::CyclicBarrier.new(2)
+
+        t1 = TestPost.create(title: "one")
+        t2 = TestPost.create(title: "two")
+
+        thread = Thread.new do
+          TestPost.transaction do
+            t1.lock!
+            barrier.wait
+            t2.update(title: "one")
+          end
+        end
+
+        begin
+          TestPost.transaction do
+            t2.lock!
+            barrier.wait
+            t1.update(title: "two")
+          end
+        ensure
+          thread.join
+        end
+      }.to raise_error(ActiveRecord::Deadlocked)
+    end
+
+    after(:all) do
+      schema_define do
+        drop_table :test_posts
+      end
+      Object.send(:remove_const, "TestPost") rescue nil
+      ActiveRecord::Base.clear_cache!
+      Thread.report_on_exception = @original_report_on_exception
+    end
+  end
+
+  describe "Sequence" do
+    before(:all) do
+      ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
+      @conn = ActiveRecord::Base.connection
+      schema_define do
+        create_table :table_with_name_thats_just_ok,
+          sequence_name: "suitably_short_seq", force: true do |t|
+          t.column :foo, :string, null: false
+        end
+      end
+    end
+    after(:all) do
+      schema_define do
+        drop_table :table_with_name_thats_just_ok,
+          sequence_name: "suitably_short_seq" rescue nil
+      end
+    end
+    it "should create table with custom sequence name" do
+      expect(@conn.select_value("select suitably_short_seq.nextval from dual")).to eq(1)
+    end
+  end
+
+  describe "Hints" do
+    before(:all) do
+      ActiveRecord::Base.establish_connection(CONNECTION_PARAMS)
+      @conn = ActiveRecord::Base.connection
+      schema_define do
+        drop_table :test_posts, if_exists: true
+        create_table :test_posts
+      end
+      class ::TestPost < ActiveRecord::Base
+      end
+    end
+
+    before(:each) do
+      @conn.clear_cache!
+      set_logger
+    end
+
+    after(:each) do
+      clear_logger
+    end
+
+    after(:all) do
+      schema_define do
+        drop_table :test_posts
+      end
+      Object.send(:remove_const, "TestPost")
+      ActiveRecord::Base.clear_cache!
+    end
+
+    it "should explain considers hints" do
+      post = TestPost.optimizer_hints("FULL (\"TEST_POSTS\")")
+      post = post.where(id: 1)
+      expect(post.explain).to include("|  TABLE ACCESS FULL| TEST_POSTS |")
+    end
+
+    it "should explain considers hints with /*+ */ " do
+      post = TestPost.optimizer_hints("/*+ FULL (\"TEST_POSTS\") */")
+      post = post.where(id: 1)
+      expect(post.explain).to include("|  TABLE ACCESS FULL| TEST_POSTS |")
+    end
+  end
 end

@@ -1,5 +1,8 @@
-require 'rubygems'
-require 'bundler'
+# frozen_string_literal: true
+
+require "rubygems"
+require "bundler"
+require "bundler/gem_tasks"
 begin
   Bundler.setup(:default, :development)
 rescue Bundler::BundlerError => e
@@ -8,30 +11,10 @@ rescue Bundler::BundlerError => e
   exit e.status_code
 end
 
-require 'rake'
+require "rake"
 
-require 'jeweler'
-Jeweler::Tasks.new do |gem|
-  gem.name = "activerecord-oracle_enhanced-adapter"
-  gem.summary = "Oracle enhanced adapter for ActiveRecord"
-  gem.description = <<-EOS
-Oracle "enhanced" ActiveRecord adapter contains useful additional methods for working with new and legacy Oracle databases.
-This adapter is superset of original ActiveRecord Oracle adapter.
-EOS
-  gem.email = "raimonds.simanovskis@gmail.com"
-  gem.homepage = "http://github.com/rsim/oracle-enhanced"
-  gem.authors = ["Raimonds Simanovskis"]
-  gem.extra_rdoc_files = ['README.md']
-end
-Jeweler::RubygemsDotOrgTasks.new
-
-require 'rspec/core/rake_task'
+require "rspec/core/rake_task"
 RSpec::Core::RakeTask.new(:spec)
-
-RSpec::Core::RakeTask.new(:rcov) do |t|
-  t.rcov = true
-  t.rcov_opts =  ['--exclude', '/Library,spec/']
-end
 
 desc "Clear test database"
 task :clear do
@@ -42,18 +25,17 @@ task :clear do
   ActiveRecord::Base.connection.execute("PURGE RECYCLEBIN") rescue nil
 end
 
-# Clear test database before running spec and rcov
-task :spec => :clear
-task :rcov => :clear
+# Clear test database before running spec
+task spec: :clear
 
-task :default => :spec
+task default: :spec
 
-require 'rdoc/task'
+require "rdoc/task"
 Rake::RDocTask.new do |rdoc|
-  version = File.exist?('VERSION') ? File.read('VERSION') : ""
+  version = File.exist?("VERSION") ? File.read("VERSION") : ""
 
-  rdoc.rdoc_dir = 'doc'
+  rdoc.rdoc_dir = "doc"
   rdoc.title = "activerecord-oracle_enhanced-adapter #{version}"
-  rdoc.rdoc_files.include('README*')
-  rdoc.rdoc_files.include('lib/**/*.rb')
+  rdoc.rdoc_files.include("README*")
+  rdoc.rdoc_files.include("lib/**/*.rb")
 end

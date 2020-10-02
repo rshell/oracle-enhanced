@@ -1,5 +1,6 @@
 .bundle
 .rvmrc
+.rbenv-gemsets
 .svn
 .DS_Store
 coverage
@@ -9,3 +10,7 @@ log
 tmp
 sqlnet.log
 Gemfile.lock
+/spec/spec_config.yaml
+ojdbc*.jar
+.byebug_history
+debug.log

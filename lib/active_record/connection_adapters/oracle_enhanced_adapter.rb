@@ -372,7 +372,7 @@ module ActiveRecord
         text: { name: "CLOB" },
         ntext: { name: "NCLOB" },
         integer: { name: "NUMBER", limit: 38 },
-        float: { name: "BINARY_FLOAT" },
+        float: { name: "NUMBER" },
         decimal: { name: "DECIMAL" },
         datetime: { name: "DATE" },
         timestamp: { name: "TIMESTAMP" },

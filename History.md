@@ -1,3 +1,20 @@
+## 6.0.6 / 2021-01-14
+
+* Changes and bug fixes
+  * Fix write_lobs Invalid byte sequence in UTF-8 [#2097, #2112]
+  * Ensure FKs are properly included in structure dumps [#2109, #2114]
+  * Remove /*+ OPTIMIZER_FEATURES_ENABLE('11.2.0.2') */ hint for all_synonyms [#2090 #2110 #2120]
+
+* CI
+  * Bump Ruby versions to the latest patch release and remove CI against ruby-head [#2104]
+
+## 6.0.5 / 2020-12-17
+
+* Changes and bug fixes
+  * Address `next_sequence_value` ArgumentError syntax [#2048 #2050]
+  * Add /*+ OPTIMIZER_FEATURES_ENABLE('11.2.0.2') */ hint to address slow SCHEMA queries [#2055, #2069]
+  * `build_subselect` does not have ordering [#2023, #2070, #2073]
+
 ## 6.0.4 / 2020-08-18
 
 * Changes and bug fixes

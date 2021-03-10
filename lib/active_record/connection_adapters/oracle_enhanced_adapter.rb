@@ -464,7 +464,7 @@ module ActiveRecord
         :isolation_level => nil,
         :enable => nil,
         :disable => nil
-      },
+      }
 
       DEFAULT_SESSION_PARAMETERS = {
           :asm_power_limit => nil,

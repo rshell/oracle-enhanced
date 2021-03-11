@@ -148,6 +148,23 @@ module ActiveRecord
             @raw_cursor.exec
           end
 
+#------------------------------------------------------------------------
+# Extra Patch to support bulk insert/update
+#
+        def bind_param_array(position, values, type = nil, max_item_length = nil)
+          @raw_cursor.bind_param_array(position, values, type, max_item_length)
+        end
+
+        def max_array_size=(n)
+          @raw_cursor.max_array_size=n
+        end
+
+        def exec_array
+          @raw_cursor.exec_array
+        end
+
+#------------------------------------------------------------------------
+
           def get_col_names
             @raw_cursor.get_col_names
           end
@@ -217,15 +234,15 @@ module ActiveRecord
           end
         end
 
-        # Return OCIError error code
-        def error_code(exception)
-          case exception
-          when OCIError
-            exception.code
-          else
-            nil
-          end
+      # Return OCIError error code
+      def error_code(exception)
+        case exception
+        when OCIError
+          exception.code
+        else
+          nil
         end
+      end
 
         def typecast_result_value(value, get_lob_value)
           case value
@@ -342,8 +359,35 @@ module ActiveRecord
           # Initialize NLS parameters
           OracleEnhancedAdapter::DEFAULT_NLS_PARAMETERS.each do |key, default_value|
             value = config[key] || ENV[key.to_s.upcase] || default_value
-            if value
-              conn.exec "alter session set #{key} = '#{value}'"
+            if value.present?
+              sql = "alter session set #{key} = '#{value}'"
+              begin
+                conn.exec sql
+              rescue Exception => ex
+                puts "#{sql}  has #{ex.message}"
+              end
+            end
+          end
+          OracleEnhancedAdapter::DEFAULT_SESSION_PARAMETERS.each do |key, default_value|
+            value = config[key] || ENV[key.to_s.upcase] || default_value
+            if value.present?
+              sql = "alter session set #{key} = #{value.to_i > 0 ? value : "'#{value}'"}"
+              begin
+                conn.exec sql
+              rescue Exception => ex
+                puts "#{sql}  has #{ex.message}"
+              end
+            end
+          end
+          OracleEnhancedAdapter::DEFAULT_SESSION_SETTINGS.each do |key, default_value|
+            value = config[key] || default_value
+            if value.present?
+              sql = "alter session #{key} #{value.to_i > 0 ? value : "'#{value}'"}"
+              begin
+                conn.exec sql
+              rescue Exception => ex
+                puts "#{sql}  has #{ex.message}"
+              end
             end
           end
           conn

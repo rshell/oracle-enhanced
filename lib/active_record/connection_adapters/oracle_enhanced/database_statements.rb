@@ -13,6 +13,14 @@ module ActiveRecord
           log(sql, name) { @connection.exec(sql) }
         end
 
+        #
+        # Prepare statement to can use with arrays for bulk insert
+        #
+        def prepare(sql, name = nil)
+          log(sql, "PREPARE #{name}") { @connection.prepare(sql) }
+        end
+
+
         def clear_cache!
           @statements.clear
           reload_type_map

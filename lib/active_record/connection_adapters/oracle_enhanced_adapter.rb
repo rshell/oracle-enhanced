@@ -328,6 +328,43 @@ module ActiveRecord
         nls_time_tz_format: nil
       }
 
+      DEFAULT_SESSION_SETTINGS ={
+        :advise => nil,
+        :current_schema => nil,
+        :isolation_level => nil,
+        :enable => nil,
+        :disable => nil
+      },
+
+      DEFAULT_SESSION_PARAMETERS = {
+          :asm_power_limit => nil,
+          :db_file_multiblock_read_count => nil,
+          :hash_area_size => nil,
+          :max_dump_file_size => nil,
+          :olap_page_pool_size => nil,
+          :optimizer_dynamic_sampling => nil,
+          :optimizer_features_enable => nil,
+          :optimizer_index_caching => nil,
+          :optimizer_index_cost_adj => nil,
+          :optimizer_mode => nil,
+          :parallel_instance_group => nil,
+          :parallel_min_percent => nil,
+          :query_rewrite_enabled => nil,
+          :query_rewrite_integrity => nil,
+          :recyclebin => nil,
+          :remote_dependencies_mode => nil,
+          :session_cached_cursors => nil,
+          :sort_area_retained_size => nil,
+          :sort_area_size => nil,
+          :sql_trace => nil,
+          :sqltune_category => nil,
+          :star_transformation_enabled => nil,
+          :statistics_level => nil,
+          :timed_os_statistics => nil,
+          :timed_statistics => nil,
+          :workarea_size_policy => nil
+        }
+
       #:stopdoc:
       NATIVE_DATABASE_TYPES = {
         primary_key: "NUMBER(38) NOT NULL PRIMARY KEY",
@@ -335,13 +372,13 @@ module ActiveRecord
         text: { name: "CLOB" },
         ntext: { name: "NCLOB" },
         integer: { name: "NUMBER", limit: 38 },
-        float: { name: "BINARY_FLOAT" },
+        float: { name: "NUMBER" },
         decimal: { name: "DECIMAL" },
-        datetime: { name: "TIMESTAMP" },
+        datetime: { name: "DATE" },
         timestamp: { name: "TIMESTAMP" },
         timestamptz: { name: "TIMESTAMP WITH TIME ZONE" },
         timestampltz: { name: "TIMESTAMP WITH LOCAL TIME ZONE" },
-        time: { name: "TIMESTAMP" },
+        time: { name: "DATE" },
         date: { name: "DATE" },
         binary: { name: "BLOB" },
         boolean: { name: "NUMBER", limit: 1 },
@@ -434,7 +471,7 @@ module ActiveRecord
         do_not_prefetch = @do_not_prefetch_primary_key[table_name]
         if do_not_prefetch.nil?
           owner, desc_table_name, db_link = @connection.describe(table_name)
-          @do_not_prefetch_primary_key [table_name] = do_not_prefetch = !has_primary_key?(table_name, owner, desc_table_name, db_link) || has_primary_key_trigger?(table_name, owner, desc_table_name, db_link)
+          @do_not_prefetch_primary_key[table_name] = do_not_prefetch = !has_primary_key?(table_name, owner, desc_table_name, db_link) || has_primary_key_trigger?(table_name, owner, desc_table_name, db_link)
         end
         !do_not_prefetch
       end
@@ -635,6 +672,7 @@ module ActiveRecord
         def initialize_type_map(m = type_map)
           super
           # oracle
+          register_class_with_precision m, %r(date)i,                 Type::DateTime
           register_class_with_precision m, %r(WITH TIME ZONE)i,       Type::OracleEnhanced::TimestampTz
           register_class_with_precision m, %r(WITH LOCAL TIME ZONE)i, Type::OracleEnhanced::TimestampLtz
           register_class_with_limit m, %r(raw)i,            Type::OracleEnhanced::Raw

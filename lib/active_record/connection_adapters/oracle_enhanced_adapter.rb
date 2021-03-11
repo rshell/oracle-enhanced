@@ -672,6 +672,7 @@ module ActiveRecord
         def initialize_type_map(m = type_map)
           super
           # oracle
+          register_class_with_precision m, %r(date)i,                 Type::DateTime
           register_class_with_precision m, %r(WITH TIME ZONE)i,       Type::OracleEnhanced::TimestampTz
           register_class_with_precision m, %r(WITH LOCAL TIME ZONE)i, Type::OracleEnhanced::TimestampLtz
           register_class_with_limit m, %r(raw)i,            Type::OracleEnhanced::Raw
